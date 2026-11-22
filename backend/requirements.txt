@@ -1,2 +1,2 @@
-pymysql>=1.1.0
-cryptography>=41.0.0
+# Urbab366 backend uses Python's built-in standard library (sqlite3, http.server, json, urllib)
+# No external pip dependencies are strictly required.
