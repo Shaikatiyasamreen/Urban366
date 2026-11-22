@@ -8,7 +8,7 @@ import os
 sys.path.append(os.path.dirname(__file__))
 import database
 
-PORT = 8000
+PORT = int(os.environ.get("PORT", 8000))
 
 class Urbab366Handler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
@@ -340,9 +340,9 @@ class Urbab366Handler(BaseHTTPRequestHandler):
 
 def run():
     database.init_db()
-    server_address = ("", PORT)
+    server_address = ("0.0.0.0", PORT)
     httpd = HTTPServer(server_address, Urbab366Handler)
-    print(f"Urbab366 Python Backend listening on http://localhost:{PORT}")
+    print(f"Urbab366 Python Backend listening on 0.0.0.0:{PORT}")
     httpd.serve_forever()
 
 if __name__ == "__main__":
