@@ -16,8 +16,7 @@ import CartDrawer from './components/CartDrawer';
 import ServiceDetailModal from './components/ServiceDetailModal';
 import BookingSuccessModal from './components/BookingSuccessModal';
 import VoiceSearchModal from './components/VoiceSearchModal';
-
-const API_BASE = 'http://localhost:8000/api';
+import { API_BASE } from './config';
 
 export default function App() {
   const [homepageData, setHomepageData] = useState(null);

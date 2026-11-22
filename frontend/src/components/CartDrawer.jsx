@@ -11,6 +11,7 @@ import {
   CheckCircle,
   ArrowRight
 } from 'lucide-react';
+import { API_BASE } from '../config';
 
 export default function CartDrawer({ 
   isOpen, 
@@ -40,7 +41,7 @@ export default function CartDrawer({
     setIsSubmitting(true);
 
     try {
-      const response = await fetch('http://localhost:8000/api/bookings', {
+      const response = await fetch(`${API_BASE}/bookings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

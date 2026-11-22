@@ -12,12 +12,14 @@ PORT = int(os.environ.get("PORT", 8000))
 
 class Urbab366Handler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        origin = self.headers.get("Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", origin if origin else "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin")
+        self.send_header("Access-Control-Max-Age", "86400")
 
     def do_OPTIONS(self):
-        self.send_response(200)
+        self.send_response(204)
         self._send_cors_headers()
         self.end_headers()
 
