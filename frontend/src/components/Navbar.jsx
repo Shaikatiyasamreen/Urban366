@@ -8,7 +8,8 @@ import {
   X,
   Mic,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  ShieldCheck
 } from 'lucide-react';
 
 export default function Navbar({ 
