@@ -97,6 +97,17 @@ CREATE TABLE IF NOT EXISTS bookings (
     status TEXT DEFAULT 'confirmed',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS laborers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    service_category TEXT NOT NULL,
+    preferred_localities TEXT NOT NULL,
+    experience_years INTEGER NOT NULL DEFAULT 1,
+    availability_status TEXT NOT NULL DEFAULT 'Available',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 SEED_SQL = """
@@ -209,6 +220,15 @@ INSERT INTO popular_tags (id, tag_name, category_slug, search_query, display_ord
 (25, 'Ayurvedic Abhyangam Massage', 'mens-salon-massage', 'abhyangam', 25),
 (26, 'Precision Men''s Haircut', 'mens-salon-massage', 'haircut men', 26),
 (27, 'Executive Complete Grooming', 'mens-salon-massage', 'grooming', 27);
+
+-- 7. Laborers Sample Data
+INSERT INTO laborers (name, phone, service_category, preferred_localities, experience_years, availability_status) VALUES
+('Ramesh Kumar', '+91 98450 12345', 'Plumbing', 'Richmond Town, Indiranagar, Koramangala', 6, 'Available'),
+('Sunita Devi', '+91 98451 23456', 'Cleaning', 'HSR Layout, Bellandur, Koramangala', 4, 'Available'),
+('Ankit Sharma', '+91 98452 34567', 'Electrical', 'Whitefield, Indiranagar, Richmond Town', 5, 'Busy'),
+('Priya Nair', '+91 98453 45678', 'Salon', 'Indiranagar, Koramangala, Jayanagar', 7, 'Available'),
+('Manjunath Gowda', '+91 98454 56789', 'Appliance Repair', 'Malleshwaram, Richmond Town, Jayanagar', 8, 'Available'),
+('Suresh Patel', '+91 98455 67890', 'Carpentry', 'HSR Layout, Electronic City, Bellandur', 5, 'Available');
 """
 
 def get_db_connection():
@@ -254,7 +274,7 @@ def init_db():
         cursor.executescript(SCHEMA_SQL)
         conn.commit()
 
-        # Check if tables need seeding
+        # Check if tables need initial seeding
         cursor.execute("SELECT count(*) as count FROM categories")
         row = cursor.fetchone()
         if row and row[0] == 0:
@@ -263,11 +283,30 @@ def init_db():
             conn.commit()
             print("Database seeded successfully.")
 
+        # Check if laborers table needs seeding
+        cursor.execute("SELECT count(*) as count FROM laborers")
+        l_row = cursor.fetchone()
+        if l_row and l_row[0] == 0:
+            print("Seeding laborers sample data...")
+            cursor.executescript("""
+            INSERT INTO laborers (name, phone, service_category, preferred_localities, experience_years, availability_status) VALUES
+            ('Ramesh Kumar', '+91 98450 12345', 'Plumbing', 'Richmond Town, Indiranagar, Koramangala', 6, 'Available'),
+            ('Sunita Devi', '+91 98451 23456', 'Cleaning', 'HSR Layout, Bellandur, Koramangala', 4, 'Available'),
+            ('Ankit Sharma', '+91 98452 34567', 'Electrical', 'Whitefield, Indiranagar, Richmond Town', 5, 'Busy'),
+            ('Priya Nair', '+91 98453 45678', 'Salon', 'Indiranagar, Koramangala, Jayanagar', 7, 'Available'),
+            ('Manjunath Gowda', '+91 98454 56789', 'Appliance Repair', 'Malleshwaram, Richmond Town, Jayanagar', 8, 'Available'),
+            ('Suresh Patel', '+91 98455 67890', 'Carpentry', 'HSR Layout, Electronic City, Bellandur', 5, 'Available');
+            """)
+            conn.commit()
+            print("Laborers seeded successfully.")
+
         cursor.execute("SELECT count(*) as count FROM categories")
         cat_count = cursor.fetchone()[0]
         cursor.execute("SELECT count(*) as count FROM services")
         srv_count = cursor.fetchone()[0]
-        print(f"Urbab366 SQLite ready at '{DB_PATH}' ({cat_count} categories, {srv_count} services).")
+        cursor.execute("SELECT count(*) as count FROM laborers")
+        lab_count = cursor.fetchone()[0]
+        print(f"Urbab366 SQLite ready at '{DB_PATH}' ({cat_count} categories, {srv_count} services, {lab_count} laborers).")
     finally:
         conn.close()
 
@@ -275,3 +314,5 @@ if __name__ == "__main__":
     init_db()
     cats = query_all("SELECT count(*) as count FROM categories")
     print("Categories Count:", cats)
+    labs = query_all("SELECT count(*) as count FROM laborers")
+    print("Laborers Count:", labs)

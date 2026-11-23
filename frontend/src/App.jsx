@@ -16,9 +16,24 @@ import CartDrawer from './components/CartDrawer';
 import ServiceDetailModal from './components/ServiceDetailModal';
 import BookingSuccessModal from './components/BookingSuccessModal';
 import VoiceSearchModal from './components/VoiceSearchModal';
+import AdminDashboard from './components/AdminDashboard';
 import { API_BASE } from './config';
 
 export default function App() {
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+
+  useEffect(() => {
+    const handlePopState = () => setCurrentPath(window.location.pathname);
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigate = (path) => {
+    window.history.pushState({}, '', path);
+    setCurrentPath(path);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const [homepageData, setHomepageData] = useState(null);
   const [locations, setLocations] = useState([]);
   const [currentLocation, setCurrentLocation] = useState(null);
@@ -124,6 +139,10 @@ export default function App() {
   const wallPanelsBanner = homepageData?.feature_banners?.find(b => b.title.includes('Wall') || b.title.includes('walls') || b.title.includes('Acoustic'));
   const getSection = (id) => homepageData?.sections?.find(s => s.id === id);
 
+  if (currentPath === '/admin' || currentPath.startsWith('/admin')) {
+    return <AdminDashboard onNavigateHome={() => navigate('/')} />;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center">
@@ -148,6 +167,7 @@ export default function App() {
         onOpenVoiceSearch={() => setIsVoiceSearchOpen(true)}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
+        onNavigateAdmin={() => navigate('/admin')}
       />
 
       <FloatingDock activeTab={activeDockTab} onTabClick={setActiveDockTab} />
@@ -218,7 +238,7 @@ export default function App() {
         />
       </main>
 
-      <Footer />
+      <Footer onNavigateAdmin={() => navigate('/admin')} />
 
       <LocationModal isOpen={isLocationModalOpen} onClose={() => setIsLocationModalOpen(false)} locations={locations} currentLocation={currentLocation} onSelectLocation={setCurrentLocation} />
       <CartDrawer isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} cart={cart} currentLocation={currentLocation} onUpdateQuantity={handleUpdateQuantity} onRemoveItem={handleRemoveFromCart} onBookingSuccess={(result) => { setBookingSuccess(result); setCart({ items: [], item_count: 0, total_amount: 0, discount: 0 }); }} />

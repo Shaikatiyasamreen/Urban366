@@ -9,14 +9,23 @@ sys.path.append(os.path.dirname(__file__))
 import database
 
 PORT = int(os.environ.get("PORT", 8000))
+ADMIN_KEY = os.environ.get("ADMIN_KEY", os.environ.get("ADMIN_PASSWORD", "urbab366admin"))
 
 class Urbab366Handler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
         origin = self.headers.get("Origin", "*")
         self.send_header("Access-Control-Allow-Origin", origin if origin else "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin, x-admin-key, X-Admin-Key")
         self.send_header("Access-Control-Max-Age", "86400")
+
+    def _is_admin_authorized(self):
+        key = self.headers.get("x-admin-key") or self.headers.get("X-Admin-Key")
+        if not key:
+            auth = self.headers.get("Authorization", "")
+            if auth.startswith("Bearer "):
+                key = auth.split("Bearer ")[1].strip()
+        return bool(key and key == ADMIN_KEY)
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -208,6 +217,35 @@ class Urbab366Handler(BaseHTTPRequestHandler):
                 b["items"] = json.loads(b["items_json"]) if b.get("items_json") else []
             self._send_json(bookings)
 
+        elif path == "/api/admin/verify":
+            if not self._is_admin_authorized():
+                return self._send_json({"error": "Unauthorized: Invalid admin key"}, status=401)
+            self._send_json({"status": "ok", "message": "Admin authorized"})
+
+        elif path == "/api/admin/laborers":
+            if not self._is_admin_authorized():
+                return self._send_json({"error": "Unauthorized: Invalid admin key"}, status=401)
+            sql = "SELECT * FROM laborers WHERE 1=1"
+            params = []
+            if "locality" in query_params and query_params["locality"][0].strip():
+                loc = query_params["locality"][0].strip()
+                sql += " AND preferred_localities LIKE ?"
+                params.append(f"%{loc}%")
+            if "category" in query_params and query_params["category"][0].strip():
+                cat = query_params["category"][0].strip()
+                sql += " AND service_category = ?"
+                params.append(cat)
+            if "availability" in query_params and query_params["availability"][0].strip():
+                sql += " AND availability_status = ?"
+                params.append(query_params["availability"][0].strip())
+            if "search" in query_params and query_params["search"][0].strip():
+                term = query_params["search"][0].strip()
+                sql += " AND (name LIKE ? OR phone LIKE ? OR preferred_localities LIKE ?)"
+                params.extend([f"%{term}%", f"%{term}%", f"%{term}%"])
+            sql += " ORDER BY id DESC"
+            laborers = database.query_all(sql, tuple(params))
+            self._send_json(laborers)
+
         else:
             self._send_json({"error": "Not found"}, status=404)
 
@@ -312,6 +350,76 @@ class Urbab366Handler(BaseHTTPRequestHandler):
                 "message": f"Booking #{booking_id} confirmed for {scheduled_date} at {scheduled_time} in {address}."
             })
 
+        elif path == "/api/admin/verify":
+            key = self.headers.get("x-admin-key") or self.headers.get("X-Admin-Key") or body.get("key") or body.get("admin_key")
+            if key == ADMIN_KEY:
+                self._send_json({"status": "ok", "message": "Admin authorized"})
+            else:
+                self._send_json({"error": "Unauthorized: Invalid admin key"}, status=401)
+
+        elif path == "/api/admin/laborers":
+            if not self._is_admin_authorized():
+                return self._send_json({"error": "Unauthorized: Invalid admin key"}, status=401)
+            name = str(body.get("name", "")).strip()
+            phone = str(body.get("phone", "")).strip()
+            category = str(body.get("service_category", "")).strip()
+            localities = body.get("preferred_localities", "")
+            if isinstance(localities, list):
+                localities = ", ".join(localities)
+            localities = str(localities).strip()
+            experience = int(body.get("experience_years", 1))
+            availability = str(body.get("availability_status", "Available")).strip()
+
+            if not name or not phone or not category or not localities:
+                self._send_json({"error": "Missing required fields: name, phone, service_category, preferred_localities"}, status=400)
+                return
+
+            new_id = database.execute_write("""
+                INSERT INTO laborers (name, phone, service_category, preferred_localities, experience_years, availability_status)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (name, phone, category, localities, experience, availability))
+
+            laborer = database.query_one("SELECT * FROM laborers WHERE id = ?", (new_id,))
+            self._send_json(laborer, status=201)
+
+        else:
+            self._send_json({"error": "Not found"}, status=404)
+
+    def do_PUT(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        if path.startswith("/api/admin/laborers/"):
+            if not self._is_admin_authorized():
+                return self._send_json({"error": "Unauthorized: Invalid admin key"}, status=401)
+            try:
+                laborer_id = int(path.split("/api/admin/laborers/")[1])
+                existing = database.query_one("SELECT * FROM laborers WHERE id = ?", (laborer_id,))
+                if not existing:
+                    self._send_json({"error": "Laborer not found"}, status=404)
+                    return
+
+                body = self._parse_body()
+                name = str(body.get("name", existing["name"])).strip()
+                phone = str(body.get("phone", existing["phone"])).strip()
+                category = str(body.get("service_category", existing["service_category"])).strip()
+                localities = body.get("preferred_localities", existing["preferred_localities"])
+                if isinstance(localities, list):
+                    localities = ", ".join(localities)
+                localities = str(localities).strip()
+                experience = int(body.get("experience_years", existing["experience_years"]))
+                availability = str(body.get("availability_status", existing["availability_status"])).strip()
+
+                database.execute_write("""
+                    UPDATE laborers 
+                    SET name = ?, phone = ?, service_category = ?, preferred_localities = ?, experience_years = ?, availability_status = ?
+                    WHERE id = ?
+                """, (name, phone, category, localities, experience, availability, laborer_id))
+
+                updated = database.query_one("SELECT * FROM laborers WHERE id = ?", (laborer_id,))
+                self._send_json(updated)
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=400)
         else:
             self._send_json({"error": "Not found"}, status=404)
 
@@ -319,7 +427,21 @@ class Urbab366Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
-        if path.startswith("/api/cart/"):
+        if path.startswith("/api/admin/laborers/"):
+            if not self._is_admin_authorized():
+                return self._send_json({"error": "Unauthorized: Invalid admin key"}, status=401)
+            try:
+                laborer_id = int(path.split("/api/admin/laborers/")[1])
+                existing = database.query_one("SELECT * FROM laborers WHERE id = ?", (laborer_id,))
+                if not existing:
+                    self._send_json({"error": "Laborer not found"}, status=404)
+                    return
+                database.execute_write("DELETE FROM laborers WHERE id = ?", (laborer_id,))
+                self._send_json({"status": "success", "message": f"Laborer #{laborer_id} deleted."})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=400)
+
+        elif path.startswith("/api/cart/"):
             try:
                 service_id = int(path.split("/api/cart/")[1])
                 database.execute_write("DELETE FROM cart_items WHERE service_id = ?", (service_id,))

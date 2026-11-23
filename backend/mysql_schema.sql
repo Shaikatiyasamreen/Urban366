@@ -111,3 +111,15 @@ CREATE TABLE bookings (
     status VARCHAR(50) DEFAULT 'Confirmed',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Laborers & Preferred Localities
+CREATE TABLE laborers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    phone VARCHAR(50) NOT NULL,
+    service_category VARCHAR(100) NOT NULL,
+    preferred_localities TEXT NOT NULL,
+    experience_years INT DEFAULT 1,
+    availability_status VARCHAR(50) DEFAULT 'Available',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
