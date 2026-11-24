@@ -49,7 +49,7 @@ export default function LaborerSearch() {
           </select>
         </label>
         <label className="text-xs font-semibold text-slate-600">Locality / area
-          <input required value={locality} onChange={e => setLocality(e.target.value)} placeholder="e.g. Madhapur" className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-3 text-sm" />
+          <input required value={locality} onChange={e => setLocality(e.target.value)} placeholder="e.g. Koramangala, Indiranagar, Whitefield" className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-3 text-sm" />
         </label>
         <label className="text-xs font-semibold text-slate-600">Expertise level
           <select value={expertise} onChange={e => setExpertise(e.target.value)} className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm">
@@ -63,7 +63,7 @@ export default function LaborerSearch() {
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
         {laborers.map(worker => {
           const services = worker.service_list || String(worker.service_categories || '').split(',').map(item => item.trim()).filter(Boolean);
-          const mapSearch = worker.full_address || worker.preferred_localities;
+          const mapSearch = worker.full_address || worker.preferred_localities || 'Bengaluru, Karnataka';
           const mapUrl = `https://maps.google.com/maps?q=${encodeURIComponent(mapSearch)}&output=embed`;
           const mapsLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapSearch)}`;
           return <article key={worker.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -76,7 +76,7 @@ export default function LaborerSearch() {
               <div className="mt-4 space-y-2 text-sm text-slate-600">
                 {worker.rate && <p className="font-bold text-slate-900">{worker.rate}</p>}
                 {worker.languages_spoken && <p>Languages: {worker.languages_spoken}</p>}
-                <p className="flex gap-2"><MapPin size={16} className="mt-0.5 shrink-0 text-violet-600" />{worker.full_address || worker.preferred_localities}</p>
+                <p className="flex gap-2"><MapPin size={16} className="mt-0.5 shrink-0 text-violet-600" />{worker.full_address || worker.preferred_localities || 'Bengaluru, Karnataka'}</p>
                 <a href={mapsLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-violet-700">Open in Google Maps <ExternalLink size={14} /></a>
               </div>
             </div>

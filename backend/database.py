@@ -244,21 +244,21 @@ LABORER_COLUMNS = (
     ("availability_status", "TEXT NOT NULL DEFAULT 'Available'"),
 )
 
-HYDERABAD_LABORERS = (
+BENGALURU_LABORERS = (
     ("Ravi Kumar", "+91 90000 10001", "Carpenter, Painter", "Expert", 9,
-     "Flat 204, Madhapur Main Road, Madhapur, Hyderabad, Telangana 500081", "Madhapur, Hitech City",
+     "100 Feet Road, Indiranagar, Bengaluru, Karnataka 560038", "Indiranagar, Marathahalli",
      "₹500/visit", "Telugu, Hindi"),
     ("Imran Ali", "+91 90000 10002", "Electrician, Appliance Repair", "Intermediate", 5,
-     "Road No. 2, Gachibowli, Hyderabad, Telangana 500032", "Gachibowli, Nanakramguda",
+     "80 Feet Road, 5th Block, Koramangala, Bengaluru, Karnataka 560034", "Koramangala, Jayanagar",
      "₹450/visit", "Hindi, Telugu, Urdu"),
     ("Srinivas Reddy", "+91 90000 10003", "Mechanic, Technician, AC Repair", "Expert", 12,
-     "KPHB 5th Phase, Kukatpally, Hyderabad, Telangana 500072", "Kukatpally, KPHB",
+     "Hosur Road, Electronic City Phase 1, Bengaluru, Karnataka 560100", "Electronic City, Marathahalli",
      "₹600/visit", "Telugu, Hindi"),
     ("Joseph Thomas", "+91 90000 10004", "Plumber, Electrician", "Intermediate", 6,
-     "Regimental Bazaar, Secunderabad, Hyderabad, Telangana 500003", "Secunderabad, Paradise",
+     "ITPL Main Road, Whitefield, Bengaluru, Karnataka 560066", "Whitefield, Hebbal",
      "₹400/visit", "Telugu, English, Hindi"),
     ("Mahesh Naik", "+91 90000 10005", "Carpenter, Appliance Repair, Painter", "Fresher", 1,
-     "Road No. 12, Banjara Hills, Hyderabad, Telangana 500034", "Banjara Hills, Jubilee Hills",
+     "11th Main Road, 4th Block, Jayanagar, Bengaluru, Karnataka 560041", "Jayanagar, HSR Layout",
      "₹350/visit", "Telugu, Hindi"),
 )
 
@@ -331,19 +331,27 @@ def migrate_laborers(conn):
             OR rate IS NULL OR languages_spoken IS NULL
     """)
 
-    for name, phone, services, expertise, years, address, localities, rate, languages in HYDERABAD_LABORERS:
+    for name, phone, services, expertise, years, address, localities, rate, languages in BENGALURU_LABORERS:
         cursor.execute("SELECT id FROM laborers WHERE phone = ?", (phone,))
-        if not cursor.fetchone():
-            columns = [
-                "name", "phone", "service_categories", "expertise_level", "experience_years",
-                "full_address", "preferred_localities", "rate", "languages_spoken",
-                "registered_by", "approval_status", "availability_status",
-            ]
-            values = [name, phone, services, expertise, years, address, localities, rate, languages,
-                      "Admin", "Approved", "Available"]
-            if "service_category" in existing_columns:
-                columns.append("service_category")
-                values.append(services)
+        existing = cursor.fetchone()
+        columns = [
+            "name", "phone", "service_categories", "expertise_level", "experience_years",
+            "full_address", "preferred_localities", "rate", "languages_spoken",
+            "registered_by", "approval_status", "availability_status",
+        ]
+        values = [name, phone, services, expertise, years, address, localities, rate, languages,
+                  "Admin", "Approved", "Available"]
+        if "service_category" in existing_columns:
+            columns.append("service_category")
+            values.append(services)
+        if existing:
+            assignments = ", ".join(f"{column} = ?" for column in columns if column != "phone")
+            update_values = [value for column, value in zip(columns, values) if column != "phone"]
+            cursor.execute(
+                f"UPDATE laborers SET {assignments} WHERE phone = ?",
+                tuple(update_values + [phone])
+            )
+        else:
             placeholders = ", ".join("?" for _ in columns)
             cursor.execute(
                 f"INSERT INTO laborers ({', '.join(columns)}) VALUES ({placeholders})",

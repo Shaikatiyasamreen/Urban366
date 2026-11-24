@@ -33,7 +33,7 @@ export default function LaborerForm({ initialValue, onSubmit, submitting = false
   }));
   const [formError, setFormError] = useState('');
   const setField = (field, value) => setForm(current => ({ ...current, [field]: value }));
-  const mapUrl = `https://maps.google.com/maps?q=${encodeURIComponent(form.full_address)}&output=embed`;
+  const mapUrl = `https://maps.google.com/maps?q=${encodeURIComponent(form.full_address || 'Bengaluru, Karnataka')}&output=embed`;
 
   const toggleService = (service) => {
     const selected = form.service_categories;
@@ -94,12 +94,12 @@ export default function LaborerForm({ initialValue, onSubmit, submitting = false
 
       <label className="block">
         <span className={labelClass}>Full Address</span>
-        <textarea className={inputClass} rows="2" value={form.full_address} onChange={e => setField('full_address', e.target.value)} required placeholder="Street, landmark, area, city" />
+        <textarea className={inputClass} rows="2" value={form.full_address} onChange={e => setField('full_address', e.target.value)} required placeholder="Street, landmark, Bengaluru, Karnataka" />
       </label>
       {form.full_address.trim() && <iframe title="Address map preview" className="h-44 w-full rounded-xl border border-slate-200" src={mapUrl} loading="lazy" />}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <label><span className={labelClass}>Preferred Localities</span><input className={inputClass} value={form.preferred_localities} onChange={e => setField('preferred_localities', e.target.value)} required placeholder="Madhapur, Gachibowli" /></label>
+        <label><span className={labelClass}>Preferred Localities</span><input className={inputClass} value={form.preferred_localities} onChange={e => setField('preferred_localities', e.target.value)} required placeholder="Koramangala, Indiranagar, Whitefield" /></label>
         <label><span className={labelClass}>Languages Spoken</span><input className={inputClass} value={form.languages_spoken} onChange={e => setField('languages_spoken', e.target.value)} placeholder="Telugu, Hindi" /></label>
       </div>
 
