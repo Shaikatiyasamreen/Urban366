@@ -25,6 +25,13 @@ function workerServices(value) {
   return String(value || '').split(',').map(service => service.trim()).filter(Boolean);
 }
 
+function normalizePhone(value) {
+  let digits = String(value || '').replace(/\D/g, '');
+  if (digits.startsWith('91') && digits.length > 10) digits = digits.slice(2);
+  if (digits.startsWith('0') && digits.length > 10) digits = digits.slice(1);
+  return /^\d{10}$/.test(digits) ? digits : '';
+}
+
 export default function LaborerForm({ initialValue, onSubmit, submitting = false, admin = false, submitLabel }) {
   const [form, setForm] = useState(() => ({
     ...EMPTY_WORKER,
@@ -54,9 +61,21 @@ export default function LaborerForm({ initialValue, onSubmit, submitting = false
       setFormError('Choose between 1 and 3 services.');
       return;
     }
+    const phone = normalizePhone(form.phone);
+    if (!phone) {
+      setFormError('Enter a valid 10-digit Indian phone number.');
+      return;
+    }
+    const alternatePhone = form.alternate_phone.trim() ? normalizePhone(form.alternate_phone) : '';
+    if (form.alternate_phone.trim() && !alternatePhone) {
+      setFormError('Enter a valid 10-digit alternate phone number or leave it blank.');
+      return;
+    }
     setFormError('');
     onSubmit({
       ...form,
+      phone,
+      alternate_phone: alternatePhone,
       service_categories: form.service_categories,
       experience_years: Number(form.experience_years)
     });
@@ -67,14 +86,15 @@ export default function LaborerForm({ initialValue, onSubmit, submitting = false
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {formError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{formError}</p>}
       <div className="grid gap-4 sm:grid-cols-2">
-        <label><span className={labelClass}>Full Name</span><input className={inputClass} value={form.name} onChange={e => setField('name', e.target.value)} required /></label>
-        <label><span className={labelClass}>Phone</span><input className={inputClass} type="tel" value={form.phone} onChange={e => setField('phone', e.target.value)} required /></label>
-        {admin && <label><span className={labelClass}>Alternate Phone</span><input className={inputClass} type="tel" value={form.alternate_phone} onChange={e => setField('alternate_phone', e.target.value)} /></label>}
+        <label><span className={labelClass}>Full Name <span className="text-red-500">*</span></span><input className={inputClass} value={form.name} onChange={e => setField('name', e.target.value)} required /></label>
+        <label><span className={labelClass}>Phone Number <span className="text-red-500">*</span></span><input className={inputClass} type="tel" inputMode="tel" value={form.phone} onChange={e => setField('phone', e.target.value)} required /></label>
+        {admin && <label><span className={labelClass}>Alternate Phone (Optional)</span><input className={inputClass} type="tel" value={form.alternate_phone} onChange={e => setField('alternate_phone', e.target.value)} /></label>}
       </div>
 
       <fieldset>
-        <legend className={labelClass}>Services <span className="font-normal text-slate-500">(choose 1 to 3)</span></legend>
+        <legend className={labelClass}>Services (Select 1–3) <span className="text-red-500">*</span></legend>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {SERVICE_OPTIONS.map(service => (
             <label key={service} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm ${form.service_categories.includes(service) ? 'border-violet-400 bg-violet-50 text-violet-800' : 'border-slate-200 text-slate-700'}`}>
@@ -83,24 +103,23 @@ export default function LaborerForm({ initialValue, onSubmit, submitting = false
             </label>
           ))}
         </div>
-        {formError && <p role="alert" className="mt-2 text-sm text-rose-600">{formError}</p>}
       </fieldset>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <label><span className={labelClass}>Expertise Level</span><select className={inputClass} value={form.expertise_level} onChange={e => setField('expertise_level', e.target.value)}><option>Fresher</option><option>Intermediate</option><option>Expert</option></select></label>
-        <label><span className={labelClass}>Years of Experience</span><input className={inputClass} type="number" min="0" value={form.experience_years} onChange={e => setField('experience_years', e.target.value)} /></label>
-        <label><span className={labelClass}>Rate</span><input className={inputClass} value={form.rate} onChange={e => setField('rate', e.target.value)} placeholder="₹500/visit" /></label>
+        <label><span className={labelClass}>Expertise Level <span className="text-red-500">*</span></span><select className={inputClass} value={form.expertise_level} onChange={e => setField('expertise_level', e.target.value)} required><option>Fresher</option><option>Intermediate</option><option>Expert</option></select></label>
+        <label><span className={labelClass}>Years of Experience (Optional)</span><input className={inputClass} type="number" min="0" value={form.experience_years} onChange={e => setField('experience_years', e.target.value)} /></label>
+        <label><span className={labelClass}>Rate (Optional)</span><input className={inputClass} value={form.rate} onChange={e => setField('rate', e.target.value)} placeholder="₹500/visit" /></label>
       </div>
 
       <label className="block">
-        <span className={labelClass}>Full Address</span>
+        <span className={labelClass}>Full Address <span className="text-red-500">*</span></span>
         <textarea className={inputClass} rows="2" value={form.full_address} onChange={e => setField('full_address', e.target.value)} required placeholder="Street, landmark, Bengaluru, Karnataka" />
       </label>
       {form.full_address.trim() && <iframe title="Address map preview" className="h-44 w-full rounded-xl border border-slate-200" src={mapUrl} loading="lazy" />}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <label><span className={labelClass}>Preferred Localities</span><input className={inputClass} value={form.preferred_localities} onChange={e => setField('preferred_localities', e.target.value)} required placeholder="Koramangala, Indiranagar, Whitefield" /></label>
-        <label><span className={labelClass}>Languages Spoken</span><input className={inputClass} value={form.languages_spoken} onChange={e => setField('languages_spoken', e.target.value)} placeholder="Telugu, Hindi" /></label>
+        <label><span className={labelClass}>Preferred Localities <span className="text-red-500">*</span></span><input className={inputClass} value={form.preferred_localities} onChange={e => setField('preferred_localities', e.target.value)} required placeholder="Koramangala, Indiranagar, Whitefield" /></label>
+        <label><span className={labelClass}>Languages Spoken (Optional)</span><input className={inputClass} value={form.languages_spoken} onChange={e => setField('languages_spoken', e.target.value)} placeholder="Kannada, English, Hindi" /></label>
       </div>
 
       {admin && <div className="grid gap-4 sm:grid-cols-2">

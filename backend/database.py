@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import re
 
 DB_PATH = os.environ.get("SQLITE_DB_PATH", os.path.join(os.path.dirname(__file__), "urbab366.db"))
 
@@ -114,6 +115,24 @@ CREATE TABLE IF NOT EXISTS laborers (
     approval_status TEXT NOT NULL DEFAULT 'Approved',
     availability_status TEXT NOT NULL DEFAULT 'Available',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS customers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    phone TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS customer_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
 );
 """
 
@@ -245,19 +264,19 @@ LABORER_COLUMNS = (
 )
 
 BENGALURU_LABORERS = (
-    ("Ravi Kumar", "+91 90000 10001", "Carpenter, Painter", "Expert", 9,
+    ("Ravi Kumar", "9000010001", "Carpenter, Painter", "Expert", 9,
      "100 Feet Road, Indiranagar, Bengaluru, Karnataka 560038", "Indiranagar, Marathahalli",
      "₹500/visit", "Telugu, Hindi"),
-    ("Imran Ali", "+91 90000 10002", "Electrician, Appliance Repair", "Intermediate", 5,
+    ("Imran Ali", "9000010002", "Electrician, Appliance Repair", "Intermediate", 5,
      "80 Feet Road, 5th Block, Koramangala, Bengaluru, Karnataka 560034", "Koramangala, Jayanagar",
      "₹450/visit", "Hindi, Telugu, Urdu"),
-    ("Srinivas Reddy", "+91 90000 10003", "Mechanic, Technician, AC Repair", "Expert", 12,
+    ("Srinivas Reddy", "9000010003", "Mechanic, Technician, AC Repair", "Expert", 12,
      "Hosur Road, Electronic City Phase 1, Bengaluru, Karnataka 560100", "Electronic City, Marathahalli",
      "₹600/visit", "Telugu, Hindi"),
-    ("Joseph Thomas", "+91 90000 10004", "Plumber, Electrician", "Intermediate", 6,
+    ("Joseph Thomas", "9000010004", "Plumber, Electrician", "Intermediate", 6,
      "ITPL Main Road, Whitefield, Bengaluru, Karnataka 560066", "Whitefield, Hebbal",
      "₹400/visit", "Telugu, English, Hindi"),
-    ("Mahesh Naik", "+91 90000 10005", "Carpenter, Appliance Repair, Painter", "Fresher", 1,
+    ("Mahesh Naik", "9000010005", "Carpenter, Appliance Repair, Painter", "Fresher", 1,
      "11th Main Road, 4th Block, Jayanagar, Bengaluru, Karnataka 560041", "Jayanagar, HSR Layout",
      "₹350/visit", "Telugu, Hindi"),
 )
@@ -299,6 +318,17 @@ def execute_write(query: str, params: tuple = ()):
         conn.close()
 
 
+def normalize_phone(value):
+    digits = re.sub(r"\D", "", str(value or ""))
+    if digits.startswith("91") and len(digits) > 10:
+        digits = digits[2:]
+    if digits.startswith("0") and len(digits) > 10:
+        digits = digits[1:]
+    if len(digits) != 10:
+        raise ValueError("Phone number must be a valid 10-digit Indian number")
+    return digits
+
+
 def migrate_laborers(conn):
     cursor = conn.cursor()
     cursor.execute("PRAGMA table_info(laborers)")
@@ -330,6 +360,23 @@ def migrate_laborers(conn):
             OR alternate_phone IS NULL OR preferred_localities IS NULL
             OR rate IS NULL OR languages_spoken IS NULL
     """)
+
+    cursor.execute("SELECT id, phone, alternate_phone FROM laborers")
+    for laborer in cursor.fetchall():
+        try:
+            phone = normalize_phone(laborer["phone"])
+        except ValueError:
+            phone = laborer["phone"]
+        alternate_phone = laborer["alternate_phone"]
+        if alternate_phone:
+            try:
+                alternate_phone = normalize_phone(alternate_phone)
+            except ValueError:
+                pass
+        cursor.execute(
+            "UPDATE laborers SET phone = ?, alternate_phone = ? WHERE id = ?",
+            (phone, alternate_phone, laborer["id"])
+        )
 
     for name, phone, services, expertise, years, address, localities, rate, languages in BENGALURU_LABORERS:
         cursor.execute("SELECT id FROM laborers WHERE phone = ?", (phone,))

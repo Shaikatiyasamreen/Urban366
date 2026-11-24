@@ -1,2 +1,3 @@
 # Urbab366 backend uses Python's built-in standard library (sqlite3, http.server, json, urllib)
-# No external pip dependencies are strictly required.
+# Password hashing dependency for customer authentication.
+Werkzeug>=3.0,<4.0

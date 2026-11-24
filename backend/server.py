@@ -3,16 +3,60 @@ import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import sys
 import os
+import hashlib
+import re
+import secrets
+import sqlite3
+import time
 
 # Add backend directory to sys.path
 sys.path.append(os.path.dirname(__file__))
 import database
+from werkzeug.security import check_password_hash, generate_password_hash
 
 PORT = int(os.environ.get("PORT", 8000))
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Urbab366Admin2026!")
+CUSTOMER_SESSION_SECONDS = 30 * 24 * 60 * 60
 EXPERTISE_LEVELS = {"Fresher", "Intermediate", "Expert"}
 AVAILABILITY_STATUSES = {"Available", "Busy", "Inactive"}
 APPROVAL_STATUSES = {"Approved", "Pending"}
+
+
+class LaborerPhoneConflict(Exception):
+    pass
+
+
+def _customer_profile(customer):
+    return {key: customer[key] for key in ("id", "name", "email", "phone")}
+
+
+def _create_customer_session(customer_id):
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    now = int(time.time())
+    database.execute_write("DELETE FROM customer_sessions WHERE expires_at <= ?", (now,))
+    database.execute_write(
+        "INSERT INTO customer_sessions (customer_id, token_hash, expires_at) VALUES (?, ?, ?)",
+        (customer_id, token_hash, now + CUSTOMER_SESSION_SECONDS)
+    )
+    return token
+
+
+def _customer_from_token(token):
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    return database.query_one("""
+        SELECT c.id, c.name, c.email, c.phone
+        FROM customer_sessions s
+        JOIN customers c ON c.id = s.customer_id
+        WHERE s.token_hash = ? AND s.expires_at > ?
+    """, (token_hash, int(time.time())))
+
+
+def _normalize_email(value):
+    email = str(value or "").strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise ValueError("Enter a valid email address.")
+    return email
 
 
 def _service_list(value):
@@ -59,7 +103,10 @@ def _laborer_payload(body, existing=None, registered_by="Admin"):
         raise ValueError("approval_status must be Approved or Pending")
 
     name = str(value("name")).strip()
-    phone = str(value("phone")).strip()
+    phone = database.normalize_phone(value("phone"))
+    alternate_phone = str(value("alternate_phone")).strip()
+    if alternate_phone:
+        alternate_phone = database.normalize_phone(alternate_phone)
     address = str(value("full_address")).strip()
     localities = str(localities).strip()
     if not name or not phone:
@@ -70,7 +117,7 @@ def _laborer_payload(body, existing=None, registered_by="Admin"):
     return {
         "name": name,
         "phone": phone,
-        "alternate_phone": str(value("alternate_phone")).strip(),
+        "alternate_phone": alternate_phone,
         "service_categories": ", ".join(services),
         "expertise_level": expertise,
         "experience_years": years,
@@ -85,6 +132,13 @@ def _laborer_payload(body, existing=None, registered_by="Admin"):
 
 
 def _save_laborer(payload, laborer_id=None):
+    duplicate = database.query_one(
+        "SELECT id FROM laborers WHERE phone = ? AND id != COALESCE(?, -1)",
+        (payload["phone"], laborer_id)
+    )
+    if duplicate:
+        raise LaborerPhoneConflict("A laborer with this phone number is already registered.")
+
     columns = [
         "name", "phone", "alternate_phone", "service_categories", "expertise_level",
         "experience_years", "full_address", "preferred_localities", "rate",
@@ -112,7 +166,7 @@ class Urbab366Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin", "*")
         self.send_header("Access-Control-Allow-Origin", origin if origin else "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Requested-With, Accept, Origin, x-admin-key, X-Admin-Key")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin, x-admin-key, X-Admin-Key")
         self.send_header("Access-Control-Max-Age", "86400")
 
     def _is_admin_authorized(self):
@@ -145,6 +199,14 @@ class Urbab366Handler(BaseHTTPRequestHandler):
 
         if path == "/api/health":
             self._send_json({"status": "ok", "city": "Bengaluru"})
+
+        elif path == "/api/auth/me":
+            authorization = self.headers.get("Authorization", "")
+            scheme, separator, token = authorization.partition(" ")
+            customer = _customer_from_token(token.strip()) if separator and scheme.lower() == "bearer" else None
+            if not customer:
+                return self._send_json({"error": "Invalid or expired customer session."}, status=401)
+            self._send_json({"customer": _customer_profile(customer)})
 
         elif path == "/api/homepage":
             categories = database.query_all("SELECT * FROM categories ORDER BY display_order ASC")
@@ -381,7 +443,60 @@ class Urbab366Handler(BaseHTTPRequestHandler):
         path = parsed.path
         body = self._parse_body()
 
-        if path == "/api/cart":
+        if path == "/api/auth/signup":
+            name = str(body.get("name", "")).strip()
+            password = str(body.get("password", ""))
+            try:
+                email = _normalize_email(body.get("email"))
+                phone = database.normalize_phone(body.get("phone"))
+            except ValueError as error:
+                return self._send_json({"error": str(error)}, status=400)
+            if not name or not password:
+                return self._send_json({"error": "Name and password are required."}, status=400)
+            if database.query_one("SELECT id FROM customers WHERE email = ?", (email,)):
+                return self._send_json(
+                    {"error": "An account with this email already exists."}, status=409
+                )
+            if database.query_one("SELECT id FROM customers WHERE phone = ?", (phone,)):
+                return self._send_json(
+                    {"error": "An account with this phone number already exists."}, status=409
+                )
+            try:
+                customer_id = database.execute_write("""
+                    INSERT INTO customers (name, email, phone, password_hash)
+                    VALUES (?, ?, ?, ?)
+                """, (name, email, phone, generate_password_hash(password)))
+            except sqlite3.IntegrityError:
+                if database.query_one("SELECT id FROM customers WHERE email = ?", (email,)):
+                    return self._send_json(
+                        {"error": "An account with this email already exists."}, status=409
+                    )
+                if database.query_one("SELECT id FROM customers WHERE phone = ?", (phone,)):
+                    return self._send_json(
+                        {"error": "An account with this phone number already exists."}, status=409
+                    )
+                raise
+            customer = database.query_one(
+                "SELECT id, name, email, phone FROM customers WHERE id = ?", (customer_id,)
+            )
+            self._send_json({
+                "token": _create_customer_session(customer_id),
+                "customer": _customer_profile(customer)
+            }, status=201)
+
+        elif path == "/api/auth/login":
+            try:
+                email = _normalize_email(body.get("email"))
+            except ValueError:
+                return self._send_json({"error": "Invalid email or password."}, status=401)
+            password = str(body.get("password", ""))
+            customer = database.query_one("SELECT * FROM customers WHERE email = ?", (email,))
+            if not customer or not password or not check_password_hash(customer["password_hash"], password):
+                return self._send_json({"error": "Invalid email or password."}, status=401)
+            profile = _customer_profile(customer)
+            self._send_json({"token": _create_customer_session(customer["id"]), "customer": profile})
+
+        elif path == "/api/cart":
             service_id = body.get("service_id")
             quantity = body.get("quantity", 1)
 
@@ -481,6 +596,8 @@ class Urbab366Handler(BaseHTTPRequestHandler):
             try:
                 laborer = _save_laborer(_laborer_payload(body, registered_by="Self"))
                 self._send_json(laborer, status=201)
+            except LaborerPhoneConflict as error:
+                self._send_json({"error": str(error)}, status=409)
             except ValueError as error:
                 self._send_json({"error": str(error)}, status=400)
 
@@ -496,6 +613,8 @@ class Urbab366Handler(BaseHTTPRequestHandler):
             try:
                 laborer = _save_laborer(_laborer_payload(body, registered_by="Admin"))
                 self._send_json(laborer, status=201)
+            except LaborerPhoneConflict as error:
+                self._send_json({"error": str(error)}, status=409)
             except ValueError as error:
                 self._send_json({"error": str(error)}, status=400)
 
@@ -519,6 +638,8 @@ class Urbab366Handler(BaseHTTPRequestHandler):
                 body = self._parse_body()
                 updated = _save_laborer(_laborer_payload(body, existing), laborer_id)
                 self._send_json(updated)
+            except LaborerPhoneConflict as e:
+                self._send_json({"error": str(e)}, status=409)
             except ValueError as e:
                 self._send_json({"error": str(e)}, status=400)
             except Exception as e:

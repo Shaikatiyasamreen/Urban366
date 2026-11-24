@@ -9,6 +9,8 @@ import {
   Mic,
   ArrowRight
 } from 'lucide-react';
+import AuthModal from './AuthModal';
+import { API_BASE } from '../config';
 
 export default function Navbar({ 
   currentLocation, 
@@ -24,7 +26,34 @@ export default function Navbar({
   const [searchResults, setSearchResults] = useState([]);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [customer, setCustomer] = useState(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
   const searchRef = useRef(null);
+  const accountRef = useRef(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem('urbab366_customer_token');
+    if (!token) return undefined;
+    let active = true;
+    fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(async response => {
+        const data = await response.json();
+        if (response.status === 401) {
+          localStorage.removeItem('urbab366_customer_token');
+          return null;
+        }
+        if (!response.ok) throw new Error(data.error || 'Customer session expired.');
+        return data.customer;
+      })
+      .then(profile => {
+        if (active && profile) setCustomer(profile);
+      })
+      .catch(error => {
+        console.error('Unable to verify customer session:', error);
+      });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -33,6 +62,26 @@ export default function Navbar({
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  useEffect(() => {
+    function handleAccountClickOutside(event) {
+      if (accountRef.current && !accountRef.current.contains(event.target)) setIsAccountOpen(false);
+    }
+    document.addEventListener('mousedown', handleAccountClickOutside);
+    return () => document.removeEventListener('mousedown', handleAccountClickOutside);
+  }, []);
+
+  const handleAuthenticated = (result) => {
+    localStorage.setItem('urbab366_customer_token', result.token);
+    setCustomer(result.customer);
+    setIsAuthOpen(false);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('urbab366_customer_token');
+    setCustomer(null);
+    setIsAccountOpen(false);
+  };
 
   useEffect(() => {
     if (searchQuery.trim().length > 1) {
@@ -200,12 +249,22 @@ export default function Navbar({
 
         {/* Right: Profile & Cart Action */}
         <div className="flex items-center gap-2.5 shrink-0">
-          <button 
-            className="hidden sm:flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors"
-          >
-            <User className="w-4 h-4 text-slate-600" />
-            <span>Account</span>
-          </button>
+          <div className="relative" ref={accountRef}>
+            <button
+              type="button"
+              onClick={() => customer ? setIsAccountOpen(open => !open) : setIsAuthOpen(true)}
+              className="flex max-w-[150px] items-center gap-1.5 rounded-xl px-2 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 sm:max-w-[190px] sm:px-3"
+            >
+              <User className="h-4 w-4 shrink-0 text-slate-600" />
+              <span className="truncate">{customer?.name || 'Account'}</span>
+            </button>
+            {customer && isAccountOpen && <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+              <p className="font-bold text-slate-900">{customer.name}</p>
+              <p className="mt-2 break-all text-sm text-slate-600">{customer.email}</p>
+              <p className="mt-1 text-sm text-slate-600">{customer.phone}</p>
+              <button type="button" onClick={handleLogout} className="mt-4 w-full rounded-xl bg-slate-100 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200">Logout</button>
+            </div>}
+          </div>
 
           {/* Cart Pill */}
           <button 
@@ -232,6 +291,7 @@ export default function Navbar({
           </button>
         </div>
       </div>
+      <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} onAuthenticated={handleAuthenticated} />
     </header>
   );
 }

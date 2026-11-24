@@ -45,6 +45,7 @@ UrbanCompany366/
 ## Worker onboarding and admin access
 
 - The unlisted `/join` page accepts worker self-registration; new submissions are marked `Pending` until approved in `/admin`.
+- The customer `Account` button supports email signup/login; sessions are issued through `/api/auth/signup`, `/api/auth/login`, and `/api/auth/me`.
 - The `/admin` dashboard and every `/api/admin/*` endpoint require the `x-admin-key` header.
 - Set `ADMIN_PASSWORD` in the Render backend environment. If it is unset, the development fallback is `Urbab366Admin2026!`; set a private password before production use.
 - Laborer records are stored in the existing SQLite `laborers` table. Startup migrates its older single-service schema while preserving existing records.
@@ -60,9 +61,10 @@ The backend creates and migrates `backend/urbab366.db` automatically when it sta
 ### 2. Backend Setup (Python)
 Install dependencies and run the server:
 ```bash
+pip install -r requirements.txt
 python backend/server.py
 ```
-*Backend runs on `http://localhost:8000`; no external Python packages are required.*
+*Backend runs on `http://localhost:8000`. Werkzeug is used for customer password hashing.*
 
 ### 3. Frontend Setup (Vite + React)
 ```bash
