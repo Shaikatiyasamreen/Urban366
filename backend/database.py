@@ -102,9 +102,16 @@ CREATE TABLE IF NOT EXISTS laborers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     phone TEXT NOT NULL,
-    service_category TEXT NOT NULL,
-    preferred_localities TEXT NOT NULL,
-    experience_years INTEGER NOT NULL DEFAULT 1,
+    alternate_phone TEXT DEFAULT '',
+    service_categories TEXT NOT NULL,
+    expertise_level TEXT NOT NULL DEFAULT 'Intermediate',
+    experience_years INTEGER NOT NULL DEFAULT 0,
+    full_address TEXT NOT NULL DEFAULT '',
+    preferred_localities TEXT NOT NULL DEFAULT '',
+    rate TEXT DEFAULT '',
+    languages_spoken TEXT DEFAULT '',
+    registered_by TEXT NOT NULL DEFAULT 'Admin',
+    approval_status TEXT NOT NULL DEFAULT 'Approved',
     availability_status TEXT NOT NULL DEFAULT 'Available',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -221,15 +228,39 @@ INSERT INTO popular_tags (id, tag_name, category_slug, search_query, display_ord
 (26, 'Precision Men''s Haircut', 'mens-salon-massage', 'haircut men', 26),
 (27, 'Executive Complete Grooming', 'mens-salon-massage', 'grooming', 27);
 
--- 7. Laborers Sample Data
-INSERT INTO laborers (name, phone, service_category, preferred_localities, experience_years, availability_status) VALUES
-('Ramesh Kumar', '+91 98450 12345', 'Plumbing', 'Richmond Town, Indiranagar, Koramangala', 6, 'Available'),
-('Sunita Devi', '+91 98451 23456', 'Cleaning', 'HSR Layout, Bellandur, Koramangala', 4, 'Available'),
-('Ankit Sharma', '+91 98452 34567', 'Electrical', 'Whitefield, Indiranagar, Richmond Town', 5, 'Busy'),
-('Priya Nair', '+91 98453 45678', 'Salon', 'Indiranagar, Koramangala, Jayanagar', 7, 'Available'),
-('Manjunath Gowda', '+91 98454 56789', 'Appliance Repair', 'Malleshwaram, Richmond Town, Jayanagar', 8, 'Available'),
-('Suresh Patel', '+91 98455 67890', 'Carpentry', 'HSR Layout, Electronic City, Bellandur', 5, 'Available');
 """
+
+LABORER_COLUMNS = (
+    ("alternate_phone", "TEXT DEFAULT ''"),
+    ("service_categories", "TEXT NOT NULL DEFAULT ''"),
+    ("expertise_level", "TEXT NOT NULL DEFAULT 'Intermediate'"),
+    ("experience_years", "INTEGER NOT NULL DEFAULT 0"),
+    ("full_address", "TEXT NOT NULL DEFAULT ''"),
+    ("preferred_localities", "TEXT NOT NULL DEFAULT ''"),
+    ("rate", "TEXT DEFAULT ''"),
+    ("languages_spoken", "TEXT DEFAULT ''"),
+    ("registered_by", "TEXT NOT NULL DEFAULT 'Admin'"),
+    ("approval_status", "TEXT NOT NULL DEFAULT 'Approved'"),
+    ("availability_status", "TEXT NOT NULL DEFAULT 'Available'"),
+)
+
+HYDERABAD_LABORERS = (
+    ("Ravi Kumar", "+91 90000 10001", "Carpenter, Painter", "Expert", 9,
+     "Flat 204, Madhapur Main Road, Madhapur, Hyderabad, Telangana 500081", "Madhapur, Hitech City",
+     "₹500/visit", "Telugu, Hindi"),
+    ("Imran Ali", "+91 90000 10002", "Electrician, Appliance Repair", "Intermediate", 5,
+     "Road No. 2, Gachibowli, Hyderabad, Telangana 500032", "Gachibowli, Nanakramguda",
+     "₹450/visit", "Hindi, Telugu, Urdu"),
+    ("Srinivas Reddy", "+91 90000 10003", "Mechanic, Technician, AC Repair", "Expert", 12,
+     "KPHB 5th Phase, Kukatpally, Hyderabad, Telangana 500072", "Kukatpally, KPHB",
+     "₹600/visit", "Telugu, Hindi"),
+    ("Joseph Thomas", "+91 90000 10004", "Plumber, Electrician", "Intermediate", 6,
+     "Regimental Bazaar, Secunderabad, Hyderabad, Telangana 500003", "Secunderabad, Paradise",
+     "₹400/visit", "Telugu, English, Hindi"),
+    ("Mahesh Naik", "+91 90000 10005", "Carpenter, Appliance Repair, Painter", "Fresher", 1,
+     "Road No. 12, Banjara Hills, Hyderabad, Telangana 500034", "Banjara Hills, Jubilee Hills",
+     "₹350/visit", "Telugu, Hindi"),
+)
 
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
@@ -267,11 +298,65 @@ def execute_write(query: str, params: tuple = ()):
     finally:
         conn.close()
 
+
+def migrate_laborers(conn):
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(laborers)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+    if "service_category" in existing_columns and "service_categories" not in existing_columns:
+        cursor.execute("ALTER TABLE laborers ADD COLUMN service_categories TEXT NOT NULL DEFAULT ''")
+        existing_columns.add("service_categories")
+
+    for column, definition in LABORER_COLUMNS:
+        if column not in existing_columns:
+            cursor.execute(f"ALTER TABLE laborers ADD COLUMN {column} {definition}")
+            existing_columns.add(column)
+
+    legacy_service = "service_category" if "service_category" in existing_columns else "'General'"
+    cursor.execute(f"""
+        UPDATE laborers
+        SET service_categories = COALESCE(NULLIF(service_categories, ''), {legacy_service}),
+            full_address = COALESCE(full_address, ''),
+            alternate_phone = COALESCE(alternate_phone, ''),
+            preferred_localities = COALESCE(preferred_localities, ''),
+            rate = COALESCE(rate, ''),
+            languages_spoken = COALESCE(languages_spoken, ''),
+            expertise_level = CASE
+                WHEN experience_years <= 1 THEN 'Fresher'
+                WHEN experience_years >= 8 THEN 'Expert'
+                ELSE 'Intermediate'
+            END
+        WHERE service_categories = '' OR full_address IS NULL
+            OR alternate_phone IS NULL OR preferred_localities IS NULL
+            OR rate IS NULL OR languages_spoken IS NULL
+    """)
+
+    for name, phone, services, expertise, years, address, localities, rate, languages in HYDERABAD_LABORERS:
+        cursor.execute("SELECT id FROM laborers WHERE phone = ?", (phone,))
+        if not cursor.fetchone():
+            columns = [
+                "name", "phone", "service_categories", "expertise_level", "experience_years",
+                "full_address", "preferred_localities", "rate", "languages_spoken",
+                "registered_by", "approval_status", "availability_status",
+            ]
+            values = [name, phone, services, expertise, years, address, localities, rate, languages,
+                      "Admin", "Approved", "Available"]
+            if "service_category" in existing_columns:
+                columns.append("service_category")
+                values.append(services)
+            placeholders = ", ".join("?" for _ in columns)
+            cursor.execute(
+                f"INSERT INTO laborers ({', '.join(columns)}) VALUES ({placeholders})",
+                tuple(values)
+            )
+
+
 def init_db():
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
         cursor.executescript(SCHEMA_SQL)
+        migrate_laborers(conn)
         conn.commit()
 
         # Check if tables need initial seeding
@@ -282,23 +367,6 @@ def init_db():
             cursor.executescript(SEED_SQL)
             conn.commit()
             print("Database seeded successfully.")
-
-        # Check if laborers table needs seeding
-        cursor.execute("SELECT count(*) as count FROM laborers")
-        l_row = cursor.fetchone()
-        if l_row and l_row[0] == 0:
-            print("Seeding laborers sample data...")
-            cursor.executescript("""
-            INSERT INTO laborers (name, phone, service_category, preferred_localities, experience_years, availability_status) VALUES
-            ('Ramesh Kumar', '+91 98450 12345', 'Plumbing', 'Richmond Town, Indiranagar, Koramangala', 6, 'Available'),
-            ('Sunita Devi', '+91 98451 23456', 'Cleaning', 'HSR Layout, Bellandur, Koramangala', 4, 'Available'),
-            ('Ankit Sharma', '+91 98452 34567', 'Electrical', 'Whitefield, Indiranagar, Richmond Town', 5, 'Busy'),
-            ('Priya Nair', '+91 98453 45678', 'Salon', 'Indiranagar, Koramangala, Jayanagar', 7, 'Available'),
-            ('Manjunath Gowda', '+91 98454 56789', 'Appliance Repair', 'Malleshwaram, Richmond Town, Jayanagar', 8, 'Available'),
-            ('Suresh Patel', '+91 98455 67890', 'Carpentry', 'HSR Layout, Electronic City, Bellandur', 5, 'Available');
-            """)
-            conn.commit()
-            print("Laborers seeded successfully.")
 
         cursor.execute("SELECT count(*) as count FROM categories")
         cat_count = cursor.fetchone()[0]

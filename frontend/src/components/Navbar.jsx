@@ -7,9 +7,7 @@ import {
   ChevronDown, 
   X,
   Mic,
-  Sparkles,
-  ArrowRight,
-  ShieldCheck
+  ArrowRight
 } from 'lucide-react';
 
 export default function Navbar({ 
@@ -21,8 +19,7 @@ export default function Navbar({
   allServices = [],
   onOpenVoiceSearch,
   searchQuery,
-  setSearchQuery,
-  onNavigateAdmin
+  setSearchQuery
 }) {
   const [searchResults, setSearchResults] = useState([]);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
@@ -203,16 +200,6 @@ export default function Navbar({
 
         {/* Right: Profile & Cart Action */}
         <div className="flex items-center gap-2.5 shrink-0">
-          {/* Admin Portal Button */}
-          <button 
-            onClick={onNavigateAdmin}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-violet-700 hover:text-violet-900 bg-violet-50 hover:bg-violet-100/80 border border-violet-200 rounded-xl transition-all shadow-xs"
-            title="Laborer & Locality Management"
-          >
-            <ShieldCheck className="w-3.5 h-3.5 text-violet-600" />
-            <span>Admin</span>
-          </button>
-
           <button 
             className="hidden sm:flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors"
           >

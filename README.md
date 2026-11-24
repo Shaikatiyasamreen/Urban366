@@ -9,7 +9,7 @@ Urbab366 is an on-demand home services platform inspired by modern service marke
 - **Dynamic Category & Services Matrix**: 8 standard categories, 2 "Native by Urbab366" smart hardware product categories, and 34+ granular home services.
 - **Bengaluru Localities Support**: Instant neighborhood selector covering Richmond Town, Koramangala, Indiranagar, Whitefield, HSR Layout, Jayanagar, and more.
 - **Cart & Booking Flow**: Interactive cart drawer, slot scheduling (dates and time windows), address confirmation, and booking persistence.
-- **Database Backed**: Structured relational schema powered by MySQL.
+- **Database Backed**: Structured relational schema powered by SQLite.
 
 ---
 
@@ -17,7 +17,7 @@ Urbab366 is an on-demand home services platform inspired by modern service marke
 
 - **Frontend**: React 18, Vite, Tailwind CSS v4, Lucide React
 - **Backend**: Python 3.12 (REST HTTP Service with CORS support)
-- **Database**: MySQL 8.0 (`urbab366_db` with InnoDB and utf8mb4 encoding)
+- **Database**: SQLite (`backend/urbab366.db`)
 
 ---
 
@@ -26,7 +26,7 @@ Urbab366 is an on-demand home services platform inspired by modern service marke
 ```text
 UrbanCompany366/
 ├── backend/
-│   ├── database.py         # PyMySQL connection pool & query helpers
+│   ├── database.py         # SQLite schema, migrations, seed data, and query helpers
 │   ├── mysql_schema.sql    # DDL schema (8 tables)
 │   ├── mysql_seed.sql      # Seed data (categories, services, banners, locations)
 │   └── server.py           # REST API HTTP server
@@ -42,24 +42,27 @@ UrbanCompany366/
 └── README.md
 ```
 
+## Worker onboarding and admin access
+
+- The unlisted `/join` page accepts worker self-registration; new submissions are marked `Pending` until approved in `/admin`.
+- The `/admin` dashboard and every `/api/admin/*` endpoint require the `x-admin-key` header.
+- Set `ADMIN_PASSWORD` in the Render backend environment. If it is unset, the development fallback is `Urbab366Admin2026!`; set a private password before production use.
+- Laborer records are stored in the existing SQLite `laborers` table. Startup migrates its older single-service schema while preserving existing records.
+- Customer worker lookup is available through `GET /api/laborers/search?service=...&locality=...&expertise=...`.
+
 ---
 
 ## ⚙️ Setup & Running Locally
 
-### 1. Database Setup (MySQL)
-Ensure MySQL Server is running on port 3306:
-```bash
-mysql -u root -p < backend/mysql_schema.sql
-mysql -u root -p < backend/mysql_seed.sql
-```
+### 1. Database Setup (SQLite)
+The backend creates and migrates `backend/urbab366.db` automatically when it starts. Set `SQLITE_DB_PATH` to use a different database file.
 
 ### 2. Backend Setup (Python)
 Install dependencies and run the server:
 ```bash
-pip install pymysql cryptography
 python backend/server.py
 ```
-*Backend runs on `http://localhost:8000`.*
+*Backend runs on `http://localhost:8000`; no external Python packages are required.*
 
 ### 3. Frontend Setup (Vite + React)
 ```bash

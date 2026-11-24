@@ -9,23 +9,115 @@ sys.path.append(os.path.dirname(__file__))
 import database
 
 PORT = int(os.environ.get("PORT", 8000))
-ADMIN_KEY = os.environ.get("ADMIN_KEY", os.environ.get("ADMIN_PASSWORD", "urbab366admin"))
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Urbab366Admin2026!")
+EXPERTISE_LEVELS = {"Fresher", "Intermediate", "Expert"}
+AVAILABILITY_STATUSES = {"Available", "Busy", "Inactive"}
+APPROVAL_STATUSES = {"Approved", "Pending"}
+
+
+def _service_list(value):
+    if isinstance(value, list):
+        values = value
+    elif isinstance(value, str):
+        values = value.split(",")
+    else:
+        values = []
+    services = []
+    for service in values:
+        clean = str(service).strip()
+        if clean and clean.casefold() not in {item.casefold() for item in services}:
+            services.append(clean)
+    if not 1 <= len(services) <= 3:
+        raise ValueError("Select between 1 and 3 services")
+    return services
+
+
+def _laborer_payload(body, existing=None, registered_by="Admin"):
+    current = existing or {}
+
+    def value(key, default=""):
+        return body.get(key, current.get(key, default))
+
+    services = _service_list(value("service_categories", value("service_category", "")))
+    localities = value("preferred_localities", "")
+    if isinstance(localities, list):
+        localities = ", ".join(str(item).strip() for item in localities if str(item).strip())
+    expertise = str(value("expertise_level", "Intermediate")).strip()
+    availability = str(value("availability_status", "Available")).strip()
+    approval = str(value("approval_status", "Pending" if registered_by == "Self" else "Approved")).strip()
+    try:
+        years = int(value("experience_years", 0))
+    except (TypeError, ValueError):
+        raise ValueError("experience_years must be a non-negative integer")
+    if years < 0:
+        raise ValueError("experience_years must be a non-negative integer")
+    if expertise not in EXPERTISE_LEVELS:
+        raise ValueError("expertise_level must be Fresher, Intermediate, or Expert")
+    if availability not in AVAILABILITY_STATUSES:
+        raise ValueError("availability_status must be Available, Busy, or Inactive")
+    if approval not in APPROVAL_STATUSES:
+        raise ValueError("approval_status must be Approved or Pending")
+
+    name = str(value("name")).strip()
+    phone = str(value("phone")).strip()
+    address = str(value("full_address")).strip()
+    localities = str(localities).strip()
+    if not name or not phone:
+        raise ValueError("Name and phone are required")
+    if not existing and (not address or not localities):
+        raise ValueError("Full address and preferred localities are required")
+
+    return {
+        "name": name,
+        "phone": phone,
+        "alternate_phone": str(value("alternate_phone")).strip(),
+        "service_categories": ", ".join(services),
+        "expertise_level": expertise,
+        "experience_years": years,
+        "full_address": address,
+        "preferred_localities": localities,
+        "rate": str(value("rate")).strip(),
+        "languages_spoken": str(value("languages_spoken")).strip(),
+        "registered_by": current.get("registered_by", registered_by),
+        "approval_status": approval if registered_by != "Self" or existing else "Pending",
+        "availability_status": availability,
+    }
+
+
+def _save_laborer(payload, laborer_id=None):
+    columns = [
+        "name", "phone", "alternate_phone", "service_categories", "expertise_level",
+        "experience_years", "full_address", "preferred_localities", "rate",
+        "languages_spoken", "registered_by", "approval_status", "availability_status",
+    ]
+    values = [payload[column] for column in columns]
+    legacy_column = any(column["name"] == "service_category" for column in database.query_all("PRAGMA table_info(laborers)"))
+    if legacy_column:
+        columns.append("service_category")
+        values.append(payload["service_categories"])
+    if laborer_id is None:
+        placeholders = ", ".join("?" for _ in columns)
+        new_id = database.execute_write(
+            f"INSERT INTO laborers ({', '.join(columns)}) VALUES ({placeholders})", tuple(values)
+        )
+        return database.query_one("SELECT * FROM laborers WHERE id = ?", (new_id,))
+    assignments = ", ".join(f"{column} = ?" for column in columns)
+    database.execute_write(
+        f"UPDATE laborers SET {assignments} WHERE id = ?", tuple(values + [laborer_id])
+    )
+    return database.query_one("SELECT * FROM laborers WHERE id = ?", (laborer_id,))
 
 class Urbab366Handler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
         origin = self.headers.get("Origin", "*")
         self.send_header("Access-Control-Allow-Origin", origin if origin else "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin, x-admin-key, X-Admin-Key")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Requested-With, Accept, Origin, x-admin-key, X-Admin-Key")
         self.send_header("Access-Control-Max-Age", "86400")
 
     def _is_admin_authorized(self):
         key = self.headers.get("x-admin-key") or self.headers.get("X-Admin-Key")
-        if not key:
-            auth = self.headers.get("Authorization", "")
-            if auth.startswith("Bearer "):
-                key = auth.split("Bearer ")[1].strip()
-        return bool(key and key == ADMIN_KEY)
+        return bool(key and key == ADMIN_PASSWORD)
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -222,6 +314,37 @@ class Urbab366Handler(BaseHTTPRequestHandler):
                 return self._send_json({"error": "Unauthorized: Invalid admin key"}, status=401)
             self._send_json({"status": "ok", "message": "Admin authorized"})
 
+        elif path == "/api/laborers/search":
+            service = query_params.get("service", [""])[0].strip()
+            locality = query_params.get("locality", [""])[0].strip()
+            expertise = query_params.get("expertise", [""])[0].strip()
+            if not service or not locality:
+                return self._send_json({"error": "service and locality are required"}, status=400)
+            sql = """
+                SELECT * FROM laborers
+                WHERE approval_status = 'Approved' AND availability_status = 'Available'
+            """
+            params = []
+            if expertise:
+                if expertise not in EXPERTISE_LEVELS:
+                    return self._send_json({"error": "Invalid expertise level"}, status=400)
+                sql += " AND expertise_level = ?"
+                params.append(expertise)
+            rows = database.query_all(sql + " ORDER BY id DESC", tuple(params))
+            matching = []
+            for laborer in rows:
+                services = [item.strip() for item in (laborer.get("service_categories") or "").split(",") if item.strip()]
+                if service.casefold() not in {item.casefold() for item in services}:
+                    continue
+                location_text = "{}, {}".format(
+                    laborer.get("preferred_localities", ""), laborer.get("full_address", "")
+                ).casefold()
+                if locality.casefold() not in location_text:
+                    continue
+                laborer["service_list"] = services
+                matching.append(laborer)
+            self._send_json(matching)
+
         elif path == "/api/admin/laborers":
             if not self._is_admin_authorized():
                 return self._send_json({"error": "Unauthorized: Invalid admin key"}, status=401)
@@ -231,10 +354,10 @@ class Urbab366Handler(BaseHTTPRequestHandler):
                 loc = query_params["locality"][0].strip()
                 sql += " AND preferred_localities LIKE ?"
                 params.append(f"%{loc}%")
-            if "category" in query_params and query_params["category"][0].strip():
-                cat = query_params["category"][0].strip()
-                sql += " AND service_category = ?"
-                params.append(cat)
+            if "service" in query_params and query_params["service"][0].strip():
+                service = query_params["service"][0].strip()
+                sql += " AND service_categories LIKE ?"
+                params.append(f"%{service}%")
             if "availability" in query_params and query_params["availability"][0].strip():
                 sql += " AND availability_status = ?"
                 params.append(query_params["availability"][0].strip())
@@ -244,6 +367,10 @@ class Urbab366Handler(BaseHTTPRequestHandler):
                 params.extend([f"%{term}%", f"%{term}%", f"%{term}%"])
             sql += " ORDER BY id DESC"
             laborers = database.query_all(sql, tuple(params))
+            for laborer in laborers:
+                laborer["service_list"] = [
+                    item.strip() for item in (laborer.get("service_categories") or "").split(",") if item.strip()
+                ]
             self._send_json(laborers)
 
         else:
@@ -350,9 +477,15 @@ class Urbab366Handler(BaseHTTPRequestHandler):
                 "message": f"Booking #{booking_id} confirmed for {scheduled_date} at {scheduled_time} in {address}."
             })
 
+        elif path == "/api/laborers/register":
+            try:
+                laborer = _save_laborer(_laborer_payload(body, registered_by="Self"))
+                self._send_json(laborer, status=201)
+            except ValueError as error:
+                self._send_json({"error": str(error)}, status=400)
+
         elif path == "/api/admin/verify":
-            key = self.headers.get("x-admin-key") or self.headers.get("X-Admin-Key") or body.get("key") or body.get("admin_key")
-            if key == ADMIN_KEY:
+            if self._is_admin_authorized():
                 self._send_json({"status": "ok", "message": "Admin authorized"})
             else:
                 self._send_json({"error": "Unauthorized: Invalid admin key"}, status=401)
@@ -360,27 +493,11 @@ class Urbab366Handler(BaseHTTPRequestHandler):
         elif path == "/api/admin/laborers":
             if not self._is_admin_authorized():
                 return self._send_json({"error": "Unauthorized: Invalid admin key"}, status=401)
-            name = str(body.get("name", "")).strip()
-            phone = str(body.get("phone", "")).strip()
-            category = str(body.get("service_category", "")).strip()
-            localities = body.get("preferred_localities", "")
-            if isinstance(localities, list):
-                localities = ", ".join(localities)
-            localities = str(localities).strip()
-            experience = int(body.get("experience_years", 1))
-            availability = str(body.get("availability_status", "Available")).strip()
-
-            if not name or not phone or not category or not localities:
-                self._send_json({"error": "Missing required fields: name, phone, service_category, preferred_localities"}, status=400)
-                return
-
-            new_id = database.execute_write("""
-                INSERT INTO laborers (name, phone, service_category, preferred_localities, experience_years, availability_status)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (name, phone, category, localities, experience, availability))
-
-            laborer = database.query_one("SELECT * FROM laborers WHERE id = ?", (new_id,))
-            self._send_json(laborer, status=201)
+            try:
+                laborer = _save_laborer(_laborer_payload(body, registered_by="Admin"))
+                self._send_json(laborer, status=201)
+            except ValueError as error:
+                self._send_json({"error": str(error)}, status=400)
 
         else:
             self._send_json({"error": "Not found"}, status=404)
@@ -400,24 +517,10 @@ class Urbab366Handler(BaseHTTPRequestHandler):
                     return
 
                 body = self._parse_body()
-                name = str(body.get("name", existing["name"])).strip()
-                phone = str(body.get("phone", existing["phone"])).strip()
-                category = str(body.get("service_category", existing["service_category"])).strip()
-                localities = body.get("preferred_localities", existing["preferred_localities"])
-                if isinstance(localities, list):
-                    localities = ", ".join(localities)
-                localities = str(localities).strip()
-                experience = int(body.get("experience_years", existing["experience_years"]))
-                availability = str(body.get("availability_status", existing["availability_status"])).strip()
-
-                database.execute_write("""
-                    UPDATE laborers 
-                    SET name = ?, phone = ?, service_category = ?, preferred_localities = ?, experience_years = ?, availability_status = ?
-                    WHERE id = ?
-                """, (name, phone, category, localities, experience, availability, laborer_id))
-
-                updated = database.query_one("SELECT * FROM laborers WHERE id = ?", (laborer_id,))
+                updated = _save_laborer(_laborer_payload(body, existing), laborer_id)
                 self._send_json(updated)
+            except ValueError as e:
+                self._send_json({"error": str(e)}, status=400)
             except Exception as e:
                 self._send_json({"error": str(e)}, status=400)
         else:

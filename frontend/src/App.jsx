@@ -17,6 +17,8 @@ import ServiceDetailModal from './components/ServiceDetailModal';
 import BookingSuccessModal from './components/BookingSuccessModal';
 import VoiceSearchModal from './components/VoiceSearchModal';
 import AdminDashboard from './components/AdminDashboard';
+import JoinPage from './components/JoinPage';
+import LaborerSearch from './components/LaborerSearch';
 import { API_BASE } from './config';
 
 export default function App() {
@@ -139,6 +141,10 @@ export default function App() {
   const wallPanelsBanner = homepageData?.feature_banners?.find(b => b.title.includes('Wall') || b.title.includes('walls') || b.title.includes('Acoustic'));
   const getSection = (id) => homepageData?.sections?.find(s => s.id === id);
 
+  if (currentPath === '/join' || currentPath.startsWith('/join/')) {
+    return <JoinPage onNavigateHome={() => navigate('/')} />;
+  }
+
   if (currentPath === '/admin' || currentPath.startsWith('/admin')) {
     return <AdminDashboard onNavigateHome={() => navigate('/')} />;
   }
@@ -167,7 +173,6 @@ export default function App() {
         onOpenVoiceSearch={() => setIsVoiceSearchOpen(true)}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
-        onNavigateAdmin={() => navigate('/admin')}
       />
 
       <FloatingDock activeTab={activeDockTab} onTabClick={setActiveDockTab} />
@@ -181,6 +186,8 @@ export default function App() {
           onSelectCategory={handleSelectCategory}
           onBookBanner={() => document.getElementById('spa_women')?.scrollIntoView({ behavior: 'smooth' })}
         />
+
+        <LaborerSearch />
 
         <SpotlightCarousel
           spotlightBanners={homepageData?.spotlight_banners || []}
@@ -238,7 +245,7 @@ export default function App() {
         />
       </main>
 
-      <Footer onNavigateAdmin={() => navigate('/admin')} />
+      <Footer />
 
       <LocationModal isOpen={isLocationModalOpen} onClose={() => setIsLocationModalOpen(false)} locations={locations} currentLocation={currentLocation} onSelectLocation={setCurrentLocation} />
       <CartDrawer isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} cart={cart} currentLocation={currentLocation} onUpdateQuantity={handleUpdateQuantity} onRemoveItem={handleRemoveFromCart} onBookingSuccess={(result) => { setBookingSuccess(result); setCart({ items: [], item_count: 0, total_amount: 0, discount: 0 }); }} />

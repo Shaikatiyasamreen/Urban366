@@ -1,5 +1,5 @@
 import React from 'react';
-import { Smartphone, ShieldCheck } from 'lucide-react';
+import { Smartphone } from 'lucide-react';
 
 function TwitterIcon(props) {
   return (
@@ -37,7 +37,7 @@ function LinkedinIcon(props) {
   );
 }
 
-export default function Footer({ onNavigateAdmin }) {
+export default function Footer() {
   return (
     <footer className="bg-[#F8F8F8] border-t border-gray-200/80 pt-12 pb-16 text-neutral-800">
       <div className="max-w-[1240px] mx-auto px-4 sm:px-6">
@@ -120,23 +120,9 @@ export default function Footer({ onNavigateAdmin }) {
               For professionals
             </h4>
             <ul className="space-y-2 text-xs sm:text-[13px] text-neutral-600">
-              <li>
-                <a href="#partner" className="font-semibold text-violet-700 hover:text-violet-800 transition-colors">
-                  Register as an Urbab366 Partner
-                </a>
-              </li>
               <li><a href="#partner-help" className="hover:text-violet-700 transition-colors">Partner Help Center</a></li>
               <li><a href="#partner-community" className="hover:text-violet-700 transition-colors">Partner Community</a></li>
               <li><a href="#partner-standards" className="hover:text-violet-700 transition-colors">Service Standards</a></li>
-              <li>
-                <button 
-                  onClick={(e) => { e.preventDefault(); if (onNavigateAdmin) onNavigateAdmin(); else window.location.pathname = '/admin'; }}
-                  className="font-bold text-violet-700 hover:text-violet-900 transition-colors text-left flex items-center gap-1 pt-1"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Admin Portal (Laborer Dispatch)</span>
-                </button>
-              </li>
             </ul>
           </div>
 
