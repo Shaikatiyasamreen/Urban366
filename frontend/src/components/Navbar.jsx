@@ -28,6 +28,8 @@ export default function Navbar({
   const [isScrolled, setIsScrolled] = useState(false);
   const [customer, setCustomer] = useState(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState('login');
+  const [authInstance, setAuthInstance] = useState(0);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const searchRef = useRef(null);
   const accountRef = useRef(null);
@@ -75,6 +77,12 @@ export default function Navbar({
     localStorage.setItem('urbab366_customer_token', result.token);
     setCustomer(result.customer);
     setIsAuthOpen(false);
+  };
+
+  const openAuth = (mode) => {
+    setAuthMode(mode);
+    setAuthInstance(current => current + 1);
+    setIsAuthOpen(true);
   };
 
   const handleLogout = () => {
@@ -249,10 +257,10 @@ export default function Navbar({
 
         {/* Right: Profile & Cart Action */}
         <div className="flex items-center gap-2.5 shrink-0">
-          <div className="relative" ref={accountRef}>
+          {customer ? <div className="relative" ref={accountRef}>
             <button
               type="button"
-              onClick={() => customer ? setIsAccountOpen(open => !open) : setIsAuthOpen(true)}
+              onClick={() => setIsAccountOpen(open => !open)}
               className="flex max-w-[150px] items-center gap-1.5 rounded-xl px-2 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 sm:max-w-[190px] sm:px-3"
             >
               <User className="h-4 w-4 shrink-0 text-slate-600" />
@@ -264,7 +272,10 @@ export default function Navbar({
               <p className="mt-1 text-sm text-slate-600">{customer.phone}</p>
               <button type="button" onClick={handleLogout} className="mt-4 w-full rounded-xl bg-slate-100 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200">Logout</button>
             </div>}
-          </div>
+          </div> : <div className="flex items-center gap-1 sm:gap-2">
+            <button type="button" onClick={() => openAuth('login')} className="rounded-xl px-2 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100 sm:px-3">Login</button>
+            <button type="button" onClick={() => openAuth('signup')} className="rounded-xl bg-violet-700 px-3 py-2 text-sm font-bold text-white hover:bg-violet-800 sm:px-4">Sign Up</button>
+          </div>}
 
           {/* Cart Pill */}
           <button 
@@ -291,7 +302,7 @@ export default function Navbar({
           </button>
         </div>
       </div>
-      <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} onAuthenticated={handleAuthenticated} />
+      <AuthModal key={`${authMode}-${authInstance}`} isOpen={isAuthOpen} initialMode={authMode} onClose={() => setIsAuthOpen(false)} onAuthenticated={handleAuthenticated} />
     </header>
   );
 }

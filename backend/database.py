@@ -324,8 +324,8 @@ def normalize_phone(value):
         digits = digits[2:]
     if digits.startswith("0") and len(digits) > 10:
         digits = digits[1:]
-    if len(digits) != 10:
-        raise ValueError("Phone number must be a valid 10-digit Indian number")
+    if len(digits) != 10 or digits[0] not in "6789":
+        raise ValueError("Phone number must be a valid 10-digit Indian mobile number starting with 6–9.")
     return digits
 
 

@@ -19,10 +19,13 @@ export default function JoinPage({ onNavigateHome }) {
         body: JSON.stringify(payload)
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Registration failed. Please try again.');
+      if (!response.ok) {
+        const requestError = new Error(result.message || result.error || 'Registration failed. Please try again.');
+        requestError.errors = result.errors;
+        requestError.status = response.status;
+        throw requestError;
+      }
       setMessage('Thank you. Your details were submitted and are awaiting approval.');
-    } catch (requestError) {
-      setError(requestError.message || 'Could not reach the server. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -35,7 +38,7 @@ export default function JoinPage({ onNavigateHome }) {
         <section className="rounded-3xl bg-white p-5 shadow-sm sm:p-8">
           <h1 className="text-2xl font-black text-slate-900">Join as a service professional</h1>
           <p className="mb-6 mt-2 text-sm text-slate-600">Share your skills and the areas where you work. Choose up to three services.</p>
-          {message ? <div role="status" className="rounded-2xl bg-emerald-50 p-5 text-emerald-800"><CheckCircle2 className="mb-2" /><p className="font-semibold">{message}</p></div> : <LaborerForm onSubmit={register} submitting={submitting} submitLabel="Submit registration" />}
+          {message ? <div role="status" className="rounded-2xl bg-emerald-50 p-5 text-emerald-800"><CheckCircle2 className="mb-2" /><p className="font-semibold">{message}</p></div> : <LaborerForm onSubmit={register} onRequestError={setError} submitting={submitting} submitLabel="Submit registration" />}
           {error && <p role="alert" className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
         </section>
       </div>

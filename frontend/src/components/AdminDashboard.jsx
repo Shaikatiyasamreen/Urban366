@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, LogOut, RefreshCw, ShieldCheck, Users, UserPlus, UserCheck, Clock3, Pencil, Trash2 } from 'lucide-react';
 import { API_BASE } from '../config';
 import LaborerForm from './LaborerForm';
@@ -9,11 +9,16 @@ export default function AdminDashboard({ onNavigateHome }) {
   const [laborers, setLaborers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [editing, setEditing] = useState(null);
   const [formVersion, setFormVersion] = useState(0);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordTouched, setPasswordTouched] = useState(false);
+  const [passwordAttempted, setPasswordAttempted] = useState(false);
+  const passwordInputRef = useRef(null);
 
   const request = async (path, options = {}, key = adminKey) => {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -21,7 +26,12 @@ export default function AdminDashboard({ onNavigateHome }) {
       headers: { ...(options.headers || {}), 'x-admin-key': key }
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Request failed.');
+    if (!response.ok) {
+      const requestError = new Error(data.message || data.error || 'Request failed.');
+      requestError.errors = data.errors;
+      requestError.status = response.status;
+      throw requestError;
+    }
     return data;
   };
 
@@ -43,7 +53,8 @@ export default function AdminDashboard({ onNavigateHome }) {
   };
 
   const verify = async (key) => {
-    setError('');
+    setPasswordError('');
+    setVerifying(true);
     try {
       await request('/admin/verify', { method: 'POST' }, key);
       sessionStorage.setItem('urbab366_admin_key', key);
@@ -52,7 +63,29 @@ export default function AdminDashboard({ onNavigateHome }) {
       await fetchLaborers(key);
     } catch (requestError) {
       setAuthenticated(false);
-      setError(requestError.message || 'Unable to verify password.');
+      setPasswordError(requestError.errors?.password || requestError.message || 'Unable to verify password.');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const submitAdminPassword = event => {
+    event.preventDefault();
+    if (verifying) return;
+    setPasswordAttempted(true);
+    setPasswordTouched(true);
+    if (!password.trim()) {
+      setPasswordError('Admin password is required.');
+      passwordInputRef.current?.focus();
+      return;
+    }
+    verify(password.trim());
+  };
+
+  const updateAdminPassword = value => {
+    setPassword(value);
+    if (passwordTouched || passwordAttempted) {
+      setPasswordError(value.trim() ? '' : 'Admin password is required.');
     }
   };
 
@@ -90,8 +123,6 @@ export default function AdminDashboard({ onNavigateHome }) {
         setFormVersion(current => current + 1);
         setNotice(`${data.name} was added.`);
       }
-    } catch (requestError) {
-      setError(requestError.message || 'Could not save worker details.');
     } finally {
       setSubmitting(false);
     }
@@ -119,16 +150,16 @@ export default function AdminDashboard({ onNavigateHome }) {
 
   if (!authenticated) {
     return <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-10">
-      <form onSubmit={event => { event.preventDefault(); verify(password.trim()); }} className="w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl">
+      <form noValidate onSubmit={submitAdminPassword} className="w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl">
         <button type="button" onClick={onNavigateHome} className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-slate-500"><ArrowLeft size={16} /> Back to home</button>
         <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-violet-700"><ShieldCheck /></div>
         <h1 className="text-2xl font-black text-slate-900">Admin dashboard</h1>
         <p className="mb-6 mt-1 text-sm text-slate-500">Enter your administrator password to manage workers.</p>
-        {error && <p role="alert" className="mb-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
-        <label className="mb-4 block text-sm font-semibold text-slate-700">Admin password
-          <input autoFocus type="password" value={password} onChange={event => setPassword(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-violet-500" required />
+        <label className="mb-4 block text-sm font-semibold text-slate-700">Admin password <span className="text-red-500">*</span>
+          <input ref={passwordInputRef} autoFocus type="password" value={password} onChange={event => updateAdminPassword(event.target.value)} onBlur={() => { setPasswordTouched(true); if (!password.trim()) setPasswordError('Admin password is required.'); }} aria-invalid={Boolean(passwordError)} className={`mt-1 w-full rounded-xl border px-3 py-3 outline-none ${passwordError ? 'border-red-500 focus:border-red-500' : 'border-slate-200 focus:border-violet-500'}`} required />
+          {passwordError && <p className="text-red-500 text-xs mt-1">{passwordError}</p>}
         </label>
-        <button className="w-full rounded-xl bg-violet-700 py-3 font-bold text-white hover:bg-violet-800">Sign in</button>
+        <button disabled={verifying} className="w-full rounded-xl bg-violet-700 py-3 font-bold text-white hover:bg-violet-800 disabled:opacity-60">{verifying ? 'Verifying…' : 'Sign in'}</button>
       </form>
     </main>;
   }
@@ -163,12 +194,12 @@ export default function AdminDashboard({ onNavigateHome }) {
       <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <h2 className="mb-1 text-xl font-bold text-slate-900">Add laborer</h2>
         <p className="mb-5 text-sm text-slate-500">For assisted onboarding, record the worker’s details while speaking with them.</p>
-        <LaborerForm key={formVersion} admin onSubmit={payload => saveLaborer(payload)} submitting={submitting} submitLabel="Add worker" />
+        <LaborerForm key={formVersion} admin onSubmit={payload => saveLaborer(payload)} onRequestError={setError} submitting={submitting} submitLabel="Add worker" />
       </section>
 
       {editing && <section className="mb-8 rounded-2xl border border-violet-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="mb-5 flex items-center justify-between"><div><h2 className="text-xl font-bold text-slate-900">Edit {editing.name}</h2><p className="text-sm text-slate-500">Update services, address, approval, or availability.</p></div><button onClick={() => setEditing(null)} className="text-sm font-semibold text-slate-500">Cancel</button></div>
-        <LaborerForm key={`edit-${editing.id}-${editing.service_categories}-${editing.approval_status}`} initialValue={editing} admin onSubmit={payload => saveLaborer(payload, editing.id)} submitting={submitting} submitLabel="Save changes" />
+        <LaborerForm key={`edit-${editing.id}-${editing.service_categories}-${editing.approval_status}`} initialValue={editing} admin onSubmit={payload => saveLaborer(payload, editing.id)} onRequestError={setError} submitting={submitting} submitLabel="Save changes" />
       </section>}
 
       <section>

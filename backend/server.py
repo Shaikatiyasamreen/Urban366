@@ -1,12 +1,13 @@
 import json
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import sys
-import os
 import hashlib
+import math
+import os
 import re
 import secrets
 import sqlite3
+import sys
 import time
 
 # Add backend directory to sys.path
@@ -20,10 +21,65 @@ CUSTOMER_SESSION_SECONDS = 30 * 24 * 60 * 60
 EXPERTISE_LEVELS = {"Fresher", "Intermediate", "Expert"}
 AVAILABILITY_STATUSES = {"Available", "Busy", "Inactive"}
 APPROVAL_STATUSES = {"Approved", "Pending"}
+SERVICE_OPTIONS = {
+    "Carpenter", "Plumber", "Electrician", "Painter", "Mechanic",
+    "Technician", "Appliance Repair", "AC Repair", "Mason", "Cleaning",
+}
+LOCALITY_OPTIONS = {
+    "Koramangala", "Indiranagar", "Whitefield", "HSR Layout", "Jayanagar",
+    "Electronic City", "Marathahalli", "Hebbal", "Richmond Town",
+    "Malleshwaram", "Bellandur",
+}
+EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+PHONE_PATTERN = re.compile(r"^[6-9][0-9]{9}$")
+RATE_PATTERN = re.compile(r"^(?:₹\s*)?([0-9]+(?:\.[0-9]+)?)(?:\s*/\s*visit)?$", re.IGNORECASE)
+
+
+class FieldValidationError(Exception):
+    def __init__(self, errors):
+        super().__init__("Please correct the highlighted fields.")
+        self.errors = errors
+
+
+class InvalidRequestBody(Exception):
+    pass
 
 
 class LaborerPhoneConflict(Exception):
     pass
+
+
+def _validation_response(errors):
+    return {
+        "success": False,
+        "message": "Please correct the highlighted fields.",
+        "errors": errors,
+    }
+
+
+def _valid_person_name(value):
+    clean = value.strip()
+    letters = [character for character in clean if character != " "]
+    return (
+        len(letters) >= 2
+        and all(character.isalpha() or character == " " for character in clean)
+    )
+
+
+def _valid_optional_number(value, maximum=None):
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return None
+    if isinstance(value, str) and not value.strip():
+        return ""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or number < 0:
+        return None
+    if maximum is not None and number > maximum:
+        return None
+    return number
 
 
 def _customer_profile(customer):
@@ -52,67 +108,147 @@ def _customer_from_token(token):
     """, (token_hash, int(time.time())))
 
 
-def _normalize_email(value):
-    email = str(value or "").strip().lower()
-    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
-        raise ValueError("Enter a valid email address.")
-    return email
-
-
-def _service_list(value):
-    if isinstance(value, list):
-        values = value
-    elif isinstance(value, str):
-        values = value.split(",")
-    else:
-        values = []
-    services = []
-    for service in values:
-        clean = str(service).strip()
-        if clean and clean.casefold() not in {item.casefold() for item in services}:
-            services.append(clean)
-    if not 1 <= len(services) <= 3:
-        raise ValueError("Select between 1 and 3 services")
-    return services
-
-
 def _laborer_payload(body, existing=None, registered_by="Admin"):
     current = existing or {}
 
     def value(key, default=""):
-        return body.get(key, current.get(key, default))
+        return body[key] if key in body else current.get(key, default)
 
-    services = _service_list(value("service_categories", value("service_category", "")))
-    localities = value("preferred_localities", "")
-    if isinstance(localities, list):
-        localities = ", ".join(str(item).strip() for item in localities if str(item).strip())
-    expertise = str(value("expertise_level", "Intermediate")).strip()
-    availability = str(value("availability_status", "Available")).strip()
-    approval = str(value("approval_status", "Pending" if registered_by == "Self" else "Approved")).strip()
-    try:
-        years = int(value("experience_years", 0))
-    except (TypeError, ValueError):
-        raise ValueError("experience_years must be a non-negative integer")
-    if years < 0:
-        raise ValueError("experience_years must be a non-negative integer")
+    errors = {}
+    name_value = value("name")
+    name = name_value.strip() if isinstance(name_value, str) else ""
+    if not isinstance(name_value, str) or not _valid_person_name(name_value):
+        errors["name"] = "Enter worker's full name (min 2 letters)."
+
+    phone_value = value("phone")
+    phone = phone_value if isinstance(phone_value, str) and PHONE_PATTERN.fullmatch(phone_value) else ""
+    if not phone:
+        errors["phone"] = "Enter a valid 10-digit Indian mobile number."
+
+    services_value = value("service_categories", value("service_category"))
+    if isinstance(services_value, str):
+        raw_services = services_value.split(",")
+    elif isinstance(services_value, list):
+        raw_services = services_value
+    else:
+        raw_services = []
+    services = [item.strip() for item in raw_services if isinstance(item, str)]
+    service_by_casefold = {option.casefold(): option for option in SERVICE_OPTIONS}
+    service_valid = (
+        1 <= len(raw_services) <= 3
+        and len(services) == len(raw_services)
+        and all(services)
+        and len({item.casefold() for item in services}) == len(services)
+        and all(item.casefold() in service_by_casefold for item in services)
+    )
+    if not service_valid:
+        errors["service_categories"] = "Select at least 1 service (maximum 3)."
+    else:
+        services = [service_by_casefold[item.casefold()] for item in services]
+
+    expertise_value = value("expertise_level")
+    expertise = expertise_value.strip() if isinstance(expertise_value, str) else ""
     if expertise not in EXPERTISE_LEVELS:
-        raise ValueError("expertise_level must be Fresher, Intermediate, or Expert")
-    if availability not in AVAILABILITY_STATUSES:
-        raise ValueError("availability_status must be Available, Busy, or Inactive")
-    if approval not in APPROVAL_STATUSES:
-        raise ValueError("approval_status must be Approved or Pending")
+        errors["expertise_level"] = "Select an expertise level."
 
-    name = str(value("name")).strip()
-    phone = database.normalize_phone(value("phone"))
-    alternate_phone = str(value("alternate_phone")).strip()
-    if alternate_phone:
-        alternate_phone = database.normalize_phone(alternate_phone)
-    address = str(value("full_address")).strip()
-    localities = str(localities).strip()
-    if not name or not phone:
-        raise ValueError("Name and phone are required")
-    if not existing and (not address or not localities):
-        raise ValueError("Full address and preferred localities are required")
+    address_value = value("full_address")
+    address = address_value.strip() if isinstance(address_value, str) else ""
+    if (
+        not isinstance(address_value, str)
+        or len(address) < 10
+        or not any(character.isalnum() for character in address)
+    ):
+        errors["full_address"] = "Enter a complete street/area address (min 10 characters)."
+
+    localities_value = value("preferred_localities")
+    if isinstance(localities_value, str):
+        raw_localities = localities_value.split(",")
+    elif isinstance(localities_value, list):
+        raw_localities = localities_value
+    else:
+        raw_localities = []
+    localities = [item.strip() for item in raw_localities if isinstance(item, str)]
+    locality_by_casefold = {option.casefold(): option for option in LOCALITY_OPTIONS}
+    locality_valid = (
+        len(localities) == len(raw_localities)
+        and bool(localities)
+        and all(localities)
+        and len({item.casefold() for item in localities}) == len(localities)
+        and all(item.casefold() in locality_by_casefold for item in localities)
+    )
+    if not locality_valid:
+        errors["preferred_localities"] = "Select at least 1 Bangalore locality."
+    else:
+        localities = [locality_by_casefold[item.casefold()] for item in localities]
+
+    alternate_value = value("alternate_phone")
+    alternate_phone = ""
+    if not isinstance(alternate_value, str):
+        errors["alternate_phone"] = "Enter a valid 10-digit Indian mobile number."
+    elif alternate_value:
+        if not PHONE_PATTERN.fullmatch(alternate_value):
+            errors["alternate_phone"] = "Enter a valid 10-digit Indian mobile number."
+        elif phone and alternate_value == phone:
+            errors["alternate_phone"] = "Alternate phone must be different from primary phone."
+        else:
+            alternate_phone = alternate_value
+
+    years_value = value("experience_years")
+    years = _valid_optional_number(years_value, maximum=60)
+    if years is None:
+        errors["experience_years"] = "Enter valid experience between 0 and 60 years."
+        years = 0
+    elif years == "":
+        years = 0
+
+    rate_value = value("rate")
+    rate = ""
+    if not isinstance(rate_value, (str, int, float)) or isinstance(rate_value, bool):
+        errors["rate"] = "Enter a valid non-negative rate."
+    elif isinstance(rate_value, str):
+        rate = rate_value.strip()
+        if rate:
+            rate_match = RATE_PATTERN.fullmatch(rate)
+            rate_amount = _valid_optional_number(rate_match.group(1)) if rate_match else None
+            if rate_amount is None:
+                errors["rate"] = "Enter a valid non-negative rate."
+    else:
+        rate_amount = _valid_optional_number(rate_value)
+        if rate_amount is None:
+            errors["rate"] = "Enter a valid non-negative rate."
+        else:
+            rate = str(rate_value)
+
+    languages_value = value("languages_spoken")
+    languages = languages_value.strip() if isinstance(languages_value, str) else ""
+    if not isinstance(languages_value, str):
+        errors["languages_spoken"] = "Enter languages as text."
+
+    availability_value = value("availability_status", "Available")
+    availability = availability_value.strip() if isinstance(availability_value, str) else ""
+    if availability not in AVAILABILITY_STATUSES:
+        errors["availability_status"] = "Select a valid availability status."
+
+    approval_value = value("approval_status", "Pending" if registered_by == "Self" else "Approved")
+    approval = approval_value.strip() if isinstance(approval_value, str) else ""
+    if approval not in APPROVAL_STATUSES:
+        errors["approval_status"] = "Select a valid approval status."
+
+    if existing:
+        required_fields = {
+            "name": "Enter worker's full name (min 2 letters).",
+            "phone": "Enter a valid 10-digit Indian mobile number.",
+            "service_categories": "Select at least 1 service (maximum 3).",
+            "expertise_level": "Select an expertise level.",
+            "full_address": "Enter a complete street/area address (min 10 characters).",
+            "preferred_localities": "Select at least 1 Bangalore locality.",
+        }
+        for field, message in required_fields.items():
+            if field not in body and not (field == "service_categories" and "service_category" in body):
+                errors[field] = message
+
+    if errors:
+        raise FieldValidationError(errors)
 
     return {
         "name": name,
@@ -122,9 +258,9 @@ def _laborer_payload(body, existing=None, registered_by="Admin"):
         "expertise_level": expertise,
         "experience_years": years,
         "full_address": address,
-        "preferred_localities": localities,
-        "rate": str(value("rate")).strip(),
-        "languages_spoken": str(value("languages_spoken")).strip(),
+        "preferred_localities": ", ".join(localities),
+        "rate": rate,
+        "languages_spoken": languages,
         "registered_by": current.get("registered_by", registered_by),
         "approval_status": approval if registered_by != "Self" or existing else "Pending",
         "availability_status": availability,
@@ -186,11 +322,14 @@ class Urbab366Handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(data, ensure_ascii=False, default=str).encode("utf-8"))
 
     def _parse_body(self):
-        content_length = int(self.headers.get("Content-Length", 0))
-        if content_length > 0:
-            raw_data = self.rfile.read(content_length)
-            return json.loads(raw_data.decode("utf-8"))
-        return {}
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            if content_length > 0:
+                raw_data = self.rfile.read(content_length)
+                return json.loads(raw_data.decode("utf-8"))
+            return {}
+        except (ValueError, UnicodeDecodeError) as error:
+            raise InvalidRequestBody("Request body must be valid JSON.") from error
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -441,25 +580,51 @@ class Urbab366Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
-        body = self._parse_body()
+        try:
+            body = self._parse_body()
+        except InvalidRequestBody:
+            return self._send_json(
+                _validation_response({"form": "Request body must be valid JSON."}),
+                status=400
+            )
 
         if path == "/api/auth/signup":
-            name = str(body.get("name", "")).strip()
-            password = str(body.get("password", ""))
-            try:
-                email = _normalize_email(body.get("email"))
-                phone = database.normalize_phone(body.get("phone"))
-            except ValueError as error:
-                return self._send_json({"error": str(error)}, status=400)
-            if not name or not password:
-                return self._send_json({"error": "Name and password are required."}, status=400)
+            if not isinstance(body, dict):
+                return self._send_json(
+                    _validation_response({"name": "Enter a valid full name (at least 2 letters)."}),
+                    status=400
+                )
+            errors = {}
+            name_value = body.get("name")
+            name = name_value.strip() if isinstance(name_value, str) else ""
+            if not isinstance(name_value, str) or not _valid_person_name(name_value):
+                errors["name"] = "Enter a valid full name (at least 2 letters)."
+            email_value = body.get("email")
+            email = email_value.strip().lower() if isinstance(email_value, str) else ""
+            if not isinstance(email_value, str) or not EMAIL_PATTERN.fullmatch(email):
+                errors["email"] = "Enter a valid email address."
+            phone_value = body.get("phone")
+            phone = phone_value if isinstance(phone_value, str) and PHONE_PATTERN.fullmatch(phone_value) else ""
+            if not phone:
+                errors["phone"] = "Enter a valid 10-digit Indian mobile number."
+            password = body.get("password")
+            if (
+                not isinstance(password, str)
+                or not password.strip()
+                or len(password) < 6
+            ):
+                errors["password"] = "Password must be at least 6 characters."
+            if errors:
+                return self._send_json(_validation_response(errors), status=400)
             if database.query_one("SELECT id FROM customers WHERE email = ?", (email,)):
                 return self._send_json(
-                    {"error": "An account with this email already exists."}, status=409
+                    _validation_response({"email": "An account with this email already exists."}),
+                    status=409
                 )
             if database.query_one("SELECT id FROM customers WHERE phone = ?", (phone,)):
                 return self._send_json(
-                    {"error": "An account with this phone number already exists."}, status=409
+                    _validation_response({"phone": "An account with this phone number already exists."}),
+                    status=409
                 )
             try:
                 customer_id = database.execute_write("""
@@ -469,11 +634,13 @@ class Urbab366Handler(BaseHTTPRequestHandler):
             except sqlite3.IntegrityError:
                 if database.query_one("SELECT id FROM customers WHERE email = ?", (email,)):
                     return self._send_json(
-                        {"error": "An account with this email already exists."}, status=409
+                        _validation_response({"email": "An account with this email already exists."}),
+                        status=409
                     )
                 if database.query_one("SELECT id FROM customers WHERE phone = ?", (phone,)):
                     return self._send_json(
-                        {"error": "An account with this phone number already exists."}, status=409
+                        _validation_response({"phone": "An account with this phone number already exists."}),
+                        status=409
                     )
                 raise
             customer = database.query_one(
@@ -485,13 +652,23 @@ class Urbab366Handler(BaseHTTPRequestHandler):
             }, status=201)
 
         elif path == "/api/auth/login":
-            try:
-                email = _normalize_email(body.get("email"))
-            except ValueError:
-                return self._send_json({"error": "Invalid email or password."}, status=401)
-            password = str(body.get("password", ""))
+            if not isinstance(body, dict):
+                return self._send_json(
+                    _validation_response({"email": "Enter a valid email address."}),
+                    status=400
+                )
+            errors = {}
+            email_value = body.get("email")
+            email = email_value.strip().lower() if isinstance(email_value, str) else ""
+            if not isinstance(email_value, str) or not EMAIL_PATTERN.fullmatch(email):
+                errors["email"] = "Enter a valid email address."
+            password = body.get("password")
+            if not isinstance(password, str) or not password.strip():
+                errors["password"] = "Password is required."
+            if errors:
+                return self._send_json(_validation_response(errors), status=400)
             customer = database.query_one("SELECT * FROM customers WHERE email = ?", (email,))
-            if not customer or not password or not check_password_hash(customer["password_hash"], password):
+            if not customer or not check_password_hash(customer["password_hash"], password):
                 return self._send_json({"error": "Invalid email or password."}, status=401)
             profile = _customer_profile(customer)
             self._send_json({"token": _create_customer_session(customer["id"]), "customer": profile})
@@ -594,29 +771,56 @@ class Urbab366Handler(BaseHTTPRequestHandler):
 
         elif path == "/api/laborers/register":
             try:
+                if not isinstance(body, dict):
+                    raise FieldValidationError({
+                        "name": "Enter worker's full name (min 2 letters).",
+                        "phone": "Enter a valid 10-digit Indian mobile number.",
+                        "service_categories": "Select at least 1 service (maximum 3).",
+                        "expertise_level": "Select an expertise level.",
+                        "full_address": "Enter a complete street/area address (min 10 characters).",
+                        "preferred_localities": "Select at least 1 Bangalore locality.",
+                    })
                 laborer = _save_laborer(_laborer_payload(body, registered_by="Self"))
                 self._send_json(laborer, status=201)
             except LaborerPhoneConflict as error:
-                self._send_json({"error": str(error)}, status=409)
-            except ValueError as error:
-                self._send_json({"error": str(error)}, status=400)
+                self._send_json(_validation_response({"phone": str(error)}), status=409)
+            except FieldValidationError as error:
+                self._send_json(_validation_response(error.errors), status=400)
 
         elif path == "/api/admin/verify":
-            if self._is_admin_authorized():
+            admin_key = self.headers.get("x-admin-key") or self.headers.get("X-Admin-Key")
+            if not admin_key:
+                self._send_json(
+                    _validation_response({"password": "Admin password is required."}),
+                    status=400
+                )
+            elif self._is_admin_authorized():
                 self._send_json({"status": "ok", "message": "Admin authorized"})
             else:
-                self._send_json({"error": "Unauthorized: Invalid admin key"}, status=401)
+                self._send_json(
+                    _validation_response({"password": "Invalid admin password."}),
+                    status=401
+                )
 
         elif path == "/api/admin/laborers":
             if not self._is_admin_authorized():
                 return self._send_json({"error": "Unauthorized: Invalid admin key"}, status=401)
             try:
+                if not isinstance(body, dict):
+                    raise FieldValidationError({
+                        "name": "Enter worker's full name (min 2 letters).",
+                        "phone": "Enter a valid 10-digit Indian mobile number.",
+                        "service_categories": "Select at least 1 service (maximum 3).",
+                        "expertise_level": "Select an expertise level.",
+                        "full_address": "Enter a complete street/area address (min 10 characters).",
+                        "preferred_localities": "Select at least 1 Bangalore locality.",
+                    })
                 laborer = _save_laborer(_laborer_payload(body, registered_by="Admin"))
                 self._send_json(laborer, status=201)
             except LaborerPhoneConflict as error:
-                self._send_json({"error": str(error)}, status=409)
-            except ValueError as error:
-                self._send_json({"error": str(error)}, status=400)
+                self._send_json(_validation_response({"phone": str(error)}), status=409)
+            except FieldValidationError as error:
+                self._send_json(_validation_response(error.errors), status=400)
 
         else:
             self._send_json({"error": "Not found"}, status=404)
@@ -635,11 +839,29 @@ class Urbab366Handler(BaseHTTPRequestHandler):
                     self._send_json({"error": "Laborer not found"}, status=404)
                     return
 
-                body = self._parse_body()
+                try:
+                    body = self._parse_body()
+                except InvalidRequestBody:
+                    self._send_json(
+                        _validation_response({"form": "Request body must be valid JSON."}),
+                        status=400
+                    )
+                    return
+                if not isinstance(body, dict):
+                    raise FieldValidationError({
+                        "name": "Enter worker's full name (min 2 letters).",
+                        "phone": "Enter a valid 10-digit Indian mobile number.",
+                        "service_categories": "Select at least 1 service (maximum 3).",
+                        "expertise_level": "Select an expertise level.",
+                        "full_address": "Enter a complete street/area address (min 10 characters).",
+                        "preferred_localities": "Select at least 1 Bangalore locality.",
+                    })
                 updated = _save_laborer(_laborer_payload(body, existing), laborer_id)
                 self._send_json(updated)
             except LaborerPhoneConflict as e:
-                self._send_json({"error": str(e)}, status=409)
+                self._send_json(_validation_response({"phone": str(e)}), status=409)
+            except FieldValidationError as e:
+                self._send_json(_validation_response(e.errors), status=400)
             except ValueError as e:
                 self._send_json({"error": str(e)}, status=400)
             except Exception as e:
