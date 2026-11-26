@@ -18,6 +18,7 @@ import BookingSuccessModal from './components/BookingSuccessModal';
 import VoiceSearchModal from './components/VoiceSearchModal';
 import AdminDashboard from './components/AdminDashboard';
 import JoinPage from './components/JoinPage';
+import EmployeeDashboard from './components/EmployeeDashboard';
 import LaborerSearch from './components/LaborerSearch';
 import { API_BASE } from './config';
 
@@ -32,7 +33,7 @@ export default function App() {
 
   const navigate = (path) => {
     window.history.pushState({}, '', path);
-    setCurrentPath(path);
+    setCurrentPath(new URL(path, window.location.origin).pathname);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -141,12 +142,17 @@ export default function App() {
   const wallPanelsBanner = homepageData?.feature_banners?.find(b => b.title.includes('Wall') || b.title.includes('walls') || b.title.includes('Acoustic'));
   const getSection = (id) => homepageData?.sections?.find(s => s.id === id);
 
-  if (currentPath === '/join' || currentPath.startsWith('/join/')) {
-    return <JoinPage onNavigateHome={() => navigate('/')} />;
+  if (currentPath.startsWith('/join')) {
+    const initialMode = new URLSearchParams(window.location.search).get('tab') === 'login' ? 'login' : 'register';
+    return <JoinPage initialMode={initialMode} onNavigateHome={() => navigate('/')} onNavigateDashboard={() => navigate('/employee/dashboard')} />;
   }
 
   if (currentPath === '/admin' || currentPath.startsWith('/admin')) {
     return <AdminDashboard onNavigateHome={() => navigate('/')} />;
+  }
+
+  if (currentPath === '/employee/dashboard') {
+    return <EmployeeDashboard onNavigateHome={() => navigate('/')} onNavigateJoin={() => navigate('/join?tab=login')} />;
   }
 
   if (loading) {
@@ -185,6 +191,7 @@ export default function App() {
           promises={homepageData?.promises || []}
           onSelectCategory={handleSelectCategory}
           onBookBanner={() => document.getElementById('spa_women')?.scrollIntoView({ behavior: 'smooth' })}
+          onJoinEmployee={() => navigate('/join')}
         />
 
         <LaborerSearch />

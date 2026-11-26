@@ -11,12 +11,16 @@ const LOCALITY_OPTIONS = [
 const EXPERTISE_OPTIONS = ['Fresher', 'Intermediate', 'Expert'];
 const AVAILABILITY_OPTIONS = ['Available', 'Busy', 'Inactive'];
 const APPROVAL_OPTIONS = ['Approved', 'Pending'];
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^[6-9]\d{9}$/;
+const PASSWORD_ERROR = 'Password must contain at least 6 characters, one uppercase letter, one digit, and one special character (excluding * and /), and must not contain * or /.';
 const SERVICE_BY_CASEFOLD = new Map(SERVICE_OPTIONS.map(service => [service.toLowerCase(), service]));
 const LOCALITY_BY_CASEFOLD = new Map(LOCALITY_OPTIONS.map(locality => [locality.toLowerCase(), locality]));
 
 const EMPTY_WORKER = {
   name: '',
+  email: '',
+  password: '',
   phone: '',
   alternate_phone: '',
   service_categories: [],
@@ -49,6 +53,21 @@ function validatePersonName(value) {
 
 function validateWorkerField(field, value, form) {
   if (field === 'name') return validatePersonName(value);
+  if (field === 'email') {
+    return typeof value === 'string' && EMAIL_PATTERN.test(value.trim())
+      ? ''
+      : 'Enter a valid email address.';
+  }
+  if (field === 'password') {
+    const valid = typeof value === 'string'
+      && value.length >= 6
+      && Boolean(value.trim())
+      && /[A-Z]/.test(value)
+      && /[0-9]/.test(value)
+      && /[^A-Za-z0-9\s*/]/.test(value)
+      && !/[*/]/.test(value);
+    return valid ? '' : PASSWORD_ERROR;
+  }
   if (field === 'phone') {
     return typeof value === 'string' && PHONE_PATTERN.test(value)
       ? ''
@@ -124,6 +143,7 @@ export default function LaborerForm({
   onRequestError,
   submitting = false,
   admin = false,
+  employeeRegistration = false,
   submitLabel
 }) {
   const [form, setForm] = useState(() => {
@@ -147,7 +167,8 @@ export default function LaborerForm({
   const selectedLocalities = localityValues(form.preferred_localities);
   const mapUrl = `https://maps.google.com/maps?q=${encodeURIComponent(form.full_address || 'Bengaluru, Karnataka')}&output=embed`;
   const visibleFields = [
-    'name', 'phone', 'service_categories', 'expertise_level', 'full_address',
+    'name', ...(employeeRegistration ? ['email', 'password'] : []),
+    'phone', 'service_categories', 'expertise_level', 'full_address',
     'preferred_localities', 'alternate_phone', 'experience_years', 'rate',
     'languages_spoken', ...(admin ? ['availability_status', ...(initialValue ? ['approval_status'] : [])] : [])
   ];
@@ -239,6 +260,7 @@ export default function LaborerForm({
       await onSubmit({
         ...form,
         name: form.name.trim(),
+        ...(employeeRegistration ? { email: form.email.trim().toLowerCase() } : {}),
         phone: form.phone,
         alternate_phone: form.alternate_phone,
         service_categories: form.service_categories,
@@ -293,14 +315,24 @@ export default function LaborerForm({
           <input ref={element => { fieldRefs.current.name = element; }} aria-invalid={Boolean(fieldErrors.name)} className={inputClass('name')} value={form.name} onChange={event => setField('name', event.target.value)} onBlur={() => blurField('name')} required />
           {fieldError('name')}
         </label>
+        {employeeRegistration && <label>
+          <span className={labelClass}>Email ID <span className="text-red-500">*</span></span>
+          <input ref={element => { fieldRefs.current.email = element; }} type="email" autoComplete="email" aria-invalid={Boolean(fieldErrors.email)} className={inputClass('email')} value={form.email} onChange={event => setField('email', event.target.value)} onBlur={() => blurField('email')} required />
+          {fieldError('email')}
+        </label>}
+        {employeeRegistration && <label>
+          <span className={labelClass}>Password <span className="text-red-500">*</span></span>
+          <input ref={element => { fieldRefs.current.password = element; }} type="password" autoComplete="new-password" aria-invalid={Boolean(fieldErrors.password)} className={inputClass('password')} value={form.password} onChange={event => setField('password', event.target.value)} onBlur={() => blurField('password')} required />
+          {fieldError('password')}
+        </label>}
         <label>
           <span className={labelClass}>Phone Number <span className="text-red-500">*</span></span>
-          <input ref={element => { fieldRefs.current.phone = element; }} type="tel" inputMode="numeric" aria-invalid={Boolean(fieldErrors.phone)} className={inputClass('phone')} value={form.phone} onChange={event => setField('phone', event.target.value)} onBlur={() => blurField('phone')} required />
+          <input ref={element => { fieldRefs.current.phone = element; }} type="tel" inputMode="numeric" maxLength={10} aria-invalid={Boolean(fieldErrors.phone)} className={inputClass('phone')} value={form.phone} onChange={event => setField('phone', event.target.value.replace(/\D/g, '').slice(0, 10))} onBlur={() => blurField('phone')} required />
           {fieldError('phone')}
         </label>
-        {admin && <label>
+        {(admin || employeeRegistration) && <label>
           <span className={labelClass}>Alternate Phone (Optional)</span>
-          <input ref={element => { fieldRefs.current.alternate_phone = element; }} type="tel" inputMode="numeric" aria-invalid={Boolean(fieldErrors.alternate_phone)} className={inputClass('alternate_phone')} value={form.alternate_phone} onChange={event => setField('alternate_phone', event.target.value)} onBlur={() => blurField('alternate_phone')} />
+          <input ref={element => { fieldRefs.current.alternate_phone = element; }} type="tel" inputMode="numeric" maxLength={10} aria-invalid={Boolean(fieldErrors.alternate_phone)} className={inputClass('alternate_phone')} value={form.alternate_phone} onChange={event => setField('alternate_phone', event.target.value.replace(/\D/g, '').slice(0, 10))} onBlur={() => blurField('alternate_phone')} />
           {fieldError('alternate_phone')}
         </label>}
       </div>

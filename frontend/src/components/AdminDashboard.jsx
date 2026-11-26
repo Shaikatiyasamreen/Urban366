@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, LogOut, RefreshCw, ShieldCheck, Users, UserPlus, UserCheck, Clock3, Pencil, Trash2 } from 'lucide-react';
 import { API_BASE } from '../config';
 import LaborerForm from './LaborerForm';
@@ -19,8 +19,12 @@ export default function AdminDashboard({ onNavigateHome }) {
   const [passwordTouched, setPasswordTouched] = useState(false);
   const [passwordAttempted, setPasswordAttempted] = useState(false);
   const passwordInputRef = useRef(null);
+  const [overview, setOverview] = useState({ totals: {}, employees: [], jobs: [] });
+  const [overviewFilters, setOverviewFilters] = useState({ date: '', employee_id: '', status: '' });
+  const [filterDraft, setFilterDraft] = useState({ date: '', employee_id: '', status: '' });
+  const [overviewLoading, setOverviewLoading] = useState(false);
 
-  const request = async (path, options = {}, key = adminKey) => {
+  const request = useCallback(async (path, options = {}, key = adminKey) => {
     const response = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers: { ...(options.headers || {}), 'x-admin-key': key }
@@ -33,7 +37,20 @@ export default function AdminDashboard({ onNavigateHome }) {
       throw requestError;
     }
     return data;
-  };
+  }, [adminKey]);
+
+  const fetchOverview = useCallback(async (key = adminKey, filters = overviewFilters) => {
+    setOverviewLoading(true);
+    try {
+      const params = new URLSearchParams(Object.entries(filters).filter(([, value]) => value));
+      const data = await request(`/admin/overview${params.toString() ? `?${params}` : ''}`, {}, key);
+      setOverview(data);
+    } catch (requestError) {
+      setError(requestError.message || 'Could not load live work analytics.');
+    } finally {
+      setOverviewLoading(false);
+    }
+  }, [adminKey, overviewFilters, request]);
 
   const fetchLaborers = async (key = adminKey) => {
     setLoading(true);
@@ -94,6 +111,13 @@ export default function AdminDashboard({ onNavigateHome }) {
   // Verify a saved session once on mount.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!authenticated) return undefined;
+    fetchOverview();
+    const intervalId = window.setInterval(() => fetchOverview(), 15000);
+    return () => window.clearInterval(intervalId);
+  }, [authenticated, fetchOverview]);
 
   const logout = () => {
     sessionStorage.removeItem('urbab366_admin_key');
@@ -176,7 +200,7 @@ export default function AdminDashboard({ onNavigateHome }) {
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div><button onClick={onNavigateHome} className="mb-2 inline-flex items-center gap-1 text-xs font-semibold text-slate-500"><ArrowLeft size={14} /> Customer home</button><h1 className="text-2xl font-black text-slate-900 sm:text-3xl">Worker management</h1></div>
         <div className="flex gap-2">
-          <button onClick={() => fetchLaborers()} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold"><RefreshCw size={15} /> Refresh</button>
+          <button onClick={() => { fetchLaborers(); fetchOverview(); }} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold"><RefreshCw size={15} /> Refresh</button>
           <button onClick={logout} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold"><LogOut size={15} /> Log out</button>
         </div>
       </header>
@@ -189,6 +213,62 @@ export default function AdminDashboard({ onNavigateHome }) {
           <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${iconClass}`}><Icon size={18} /></div>
           <p className="text-2xl font-black text-slate-900">{count}</p><p className="mt-1 text-xs font-semibold text-slate-500">{title}</p>
         </article>)}
+      </section>
+
+      <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div><h2 className="text-xl font-bold text-slate-900">Live Work Analytics</h2><p className="mt-1 text-sm text-slate-500">Job states synchronize automatically and refresh every 15 seconds.</p></div>
+          <button type="button" onClick={() => fetchOverview()} disabled={overviewLoading} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold disabled:opacity-60"><RefreshCw size={14} />{overviewLoading ? 'Refreshing…' : 'Refresh analytics'}</button>
+        </div>
+        <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-5">
+          {[
+            ['Total Employees', overview.totals.total_employees],
+            ['Total Jobs Assigned', overview.totals.total_jobs],
+            ['Pending Jobs', overview.totals.pending_jobs],
+            ['In Progress Jobs', overview.totals.in_progress_jobs],
+            ['Completed Jobs', overview.totals.completed_jobs]
+          ].map(([title, count]) => <article key={title} className="rounded-xl bg-slate-50 p-3"><p className="text-xl font-black text-slate-900">{count || 0}</p><p className="mt-1 text-xs font-semibold text-slate-500">{title}</p></article>)}
+        </div>
+
+        <h3 className="mb-3 text-lg font-bold text-slate-900">Employee Performance</h3>
+        {overview.employees.length === 0 ? <p className="mb-6 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No self-service employee accounts or assigned jobs yet.</p> : <div className="mb-7 overflow-x-auto rounded-xl border border-slate-100">
+          <table className="min-w-[900px] w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="p-3">Employee</th><th className="p-3">Services / Areas</th><th className="p-3">Total</th><th className="p-3">Pending</th><th className="p-3">In Progress</th><th className="p-3">Completed</th><th className="p-3">Completion</th><th className="p-3">Slot Demand</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {overview.employees.map(employee => <tr key={employee.id}>
+                <td className="p-3"><strong className="block text-slate-900">{employee.name}</strong><a href={`tel:${employee.phone}`} className="text-xs text-violet-700">{employee.phone}</a></td>
+                <td className="max-w-[240px] p-3 text-xs text-slate-600">{employee.service_categories}<br /><span className="text-slate-400">{employee.preferred_localities}</span></td>
+                <td className="p-3">{employee.total_jobs}</td><td className="p-3">{employee.pending_jobs}</td><td className="p-3">{employee.in_progress_jobs}</td><td className="p-3">{employee.completed_jobs}</td><td className="p-3">{employee.completion_rate}%</td><td className="p-3">{employee.missed_slot_demand}</td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>}
+
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <div><h3 className="text-lg font-bold text-slate-900">Work Records</h3><p className="text-xs text-slate-500">{overview.jobs.length} employee jobs match the selected filters.</p></div>
+          <form noValidate onSubmit={event => { event.preventDefault(); setOverviewFilters(filterDraft); }} className="grid gap-2 sm:grid-cols-4">
+            <label className="text-xs font-semibold text-slate-600">Date<input type="date" value={filterDraft.date} onChange={event => setFilterDraft(current => ({ ...current, date: event.target.value }))} className="mt-1 block rounded-lg border border-slate-200 px-2 py-2 text-xs" /></label>
+            <label className="text-xs font-semibold text-slate-600">Employee<select value={filterDraft.employee_id} onChange={event => setFilterDraft(current => ({ ...current, employee_id: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs"><option value="">All employees</option>{overview.employees.map(employee => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label>
+            <label className="text-xs font-semibold text-slate-600">Status<select value={filterDraft.status} onChange={event => setFilterDraft(current => ({ ...current, status: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs"><option value="">All statuses</option><option>Pending</option><option>In Progress</option><option>Completed</option></select></label>
+            <div className="flex items-end gap-2"><button type="submit" className="rounded-lg bg-violet-700 px-3 py-2 text-xs font-bold text-white">Apply</button><button type="button" onClick={() => { const empty = { date: '', employee_id: '', status: '' }; setFilterDraft(empty); setOverviewFilters(empty); }} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600">Clear</button></div>
+          </form>
+        </div>
+        {overview.jobs.length === 0 ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No work records match these filters.</p> : <div className="overflow-x-auto rounded-xl border border-slate-100">
+          <table className="min-w-[1000px] w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="p-3">Job</th><th className="p-3">Employee</th><th className="p-3">Customer</th><th className="p-3">Schedule</th><th className="p-3">Address / Notes</th><th className="p-3">Status</th><th className="p-3">Updated</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {overview.jobs.map(job => <tr key={job.id}>
+                <td className="p-3"><strong>{job.service}</strong><span className="block text-xs text-slate-400">#{job.id}</span></td>
+                <td className="p-3">{job.employee_name}</td>
+                <td className="p-3">{job.customer_name}<a href={`tel:${job.customer_phone}`} className="block text-xs text-violet-700">{job.customer_phone}</a></td>
+                <td className="p-3">{job.job_date}<span className="block text-xs text-slate-500">{job.time_slot}</span></td>
+                <td className="max-w-[260px] p-3 text-xs text-slate-600">{job.service_address || job.address}{job.work_description && <span className="mt-1 block text-slate-400">{job.work_description}</span>}</td>
+                <td className="p-3"><span className={`rounded-full px-2 py-1 text-xs font-bold ${job.status === 'Completed' ? 'bg-emerald-50 text-emerald-700' : job.status === 'In Progress' ? 'bg-violet-50 text-violet-700' : 'bg-amber-50 text-amber-700'}`}>{job.status}</span></td>
+                <td className="p-3 text-xs text-slate-500">{job.updated_at || job.created_at}</td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>}
       </section>
 
       <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">

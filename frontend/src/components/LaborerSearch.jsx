@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { MapPin, Search, Phone, ExternalLink } from 'lucide-react';
+import { MapPin, Search, Phone, ExternalLink, Calendar } from 'lucide-react';
 import { API_BASE } from '../config';
+import LaborerBookingModal from './LaborerBookingModal';
 
 const SERVICES = ['Carpenter', 'Plumber', 'Electrician', 'Painter', 'Mechanic', 'Technician', 'Appliance Repair', 'AC Repair', 'Mason', 'Cleaning'];
 
@@ -13,6 +14,13 @@ export default function LaborerSearch() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [hasSearched, setHasSearched] = useState(false);
+  const [bookingWorker, setBookingWorker] = useState(null);
+  const [bookingRequiresLogin, setBookingRequiresLogin] = useState(false);
+
+  const beginBooking = worker => {
+    setBookingRequiresLogin(!localStorage.getItem('urbab366_customer_token'));
+    setBookingWorker(worker);
+  };
 
   const search = async (event) => {
     event.preventDefault();
@@ -70,7 +78,10 @@ export default function LaborerSearch() {
             <div className="p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div><h3 className="text-lg font-bold text-slate-900">{worker.name}</h3><span className="mt-1 inline-flex rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-800">{worker.expertise_level} · {worker.experience_years} {worker.experience_years === 1 ? 'year' : 'years'}</span></div>
-                <a href={`tel:${worker.phone}`} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white"><Phone size={16} /> Call</a>
+                <div className="flex flex-wrap gap-2">
+                  <a href={`tel:${worker.phone}`} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white"><Phone size={16} /> Call</a>
+                  <button type="button" onClick={() => beginBooking(worker)} className="inline-flex items-center gap-2 rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-800"><Calendar size={16} /> Book Now</button>
+                </div>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">{services.map(item => <span key={item} className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${item.toLowerCase() === searchedService.toLowerCase() ? 'border-violet-300 bg-violet-100 text-violet-900' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>{item}</span>)}</div>
               <div className="mt-4 space-y-2 text-sm text-slate-600">
@@ -84,6 +95,7 @@ export default function LaborerSearch() {
           </article>;
         })}
       </div>
+      {bookingWorker && <LaborerBookingModal worker={bookingWorker} searchedService={searchedService} requireLogin={bookingRequiresLogin} onClose={() => setBookingWorker(null)} />}
     </section>
   );
 }

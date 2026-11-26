@@ -1,9 +1,20 @@
 import React, { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { API_BASE } from '../config';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^[6-9]\d{9}$/;
+const PASSWORD_ERROR = 'Password must contain at least 6 characters, one uppercase letter, one digit, and one special character (excluding * and /), and must not contain * or /.';
+
+function isValidSignupPassword(value) {
+  return value.length >= 6
+    && Boolean(value.trim())
+    && /[A-Z]/.test(value)
+    && /[0-9]/.test(value)
+    && /[^A-Za-z0-9\s*/]/.test(value)
+    && !/[*/]/.test(value);
+}
 
 function validateName(value) {
   const clean = value.trim();
@@ -25,8 +36,8 @@ function validateField(field, value, signup) {
       : 'Enter a valid 10-digit Indian mobile number.';
   }
   if (field === 'password') {
-    if (!value.trim()) return signup ? 'Password must be at least 6 characters.' : 'Password is required.';
-    if (signup && Array.from(value).length < 6) return 'Password must be at least 6 characters.';
+    if (signup && !isValidSignupPassword(value)) return PASSWORD_ERROR;
+    if (!signup && !value.trim()) return 'Password is required.';
   }
   return '';
 }
@@ -166,9 +177,9 @@ export default function AuthModal({ isOpen, initialMode = 'login', onClose, onAu
     <p className="text-red-500 text-xs mt-1">{fieldErrors[field]}</p>
   );
 
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 p-4" onMouseDown={event => event.target === event.currentTarget && onClose()}>
-      <section role="dialog" aria-modal="true" aria-labelledby="customer-auth-title" className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-8">
+  return createPortal((
+    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-slate-950/55 p-4 sm:items-center" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+      <section role="dialog" aria-modal="true" aria-labelledby="customer-auth-title" className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl sm:p-8">
         <button type="button" onClick={onClose} aria-label="Close account dialog" className="absolute right-4 top-4 rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X size={19} /></button>
         <h2 id="customer-auth-title" className="text-2xl font-black text-slate-900">{isSignup ? 'Create your account' : 'Welcome back'}</h2>
         <p className="mt-1 text-sm text-slate-500">{isSignup ? 'Create an account to book and manage services.' : 'Sign in to your Urbab366 customer account.'}</p>
@@ -193,7 +204,7 @@ export default function AuthModal({ isOpen, initialMode = 'login', onClose, onAu
           </label>
           {isSignup && <label className="block text-sm font-semibold text-slate-700">
             Phone Number {requiredMark}
-            <input ref={element => { fieldRefs.current.phone = element; }} type="tel" inputMode="numeric" autoComplete="tel" aria-invalid={Boolean(fieldErrors.phone)} className={inputClass('phone')} value={phone} onChange={event => updateField('phone', event.target.value)} onBlur={() => blurField('phone')} required placeholder="10-digit Indian mobile number" />
+            <input ref={element => { fieldRefs.current.phone = element; }} type="tel" inputMode="numeric" maxLength={10} autoComplete="tel" aria-invalid={Boolean(fieldErrors.phone)} className={inputClass('phone')} value={phone} onChange={event => updateField('phone', event.target.value.replace(/\D/g, '').slice(0, 10))} onBlur={() => blurField('phone')} required placeholder="10-digit Indian mobile number" />
             {fieldError('phone')}
           </label>}
           <label className="block text-sm font-semibold text-slate-700">
@@ -213,5 +224,5 @@ export default function AuthModal({ isOpen, initialMode = 'login', onClose, onAu
         </p>
       </section>
     </div>
-  );
+  ), document.body);
 }

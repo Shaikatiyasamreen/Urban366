@@ -58,6 +58,14 @@ export default function Navbar({
   }, []);
 
   useEffect(() => {
+    const handleCustomerAuthenticated = event => {
+      if (event.detail) setCustomer(event.detail);
+    };
+    window.addEventListener('urbab366-customer-authenticated', handleCustomerAuthenticated);
+    return () => window.removeEventListener('urbab366-customer-authenticated', handleCustomerAuthenticated);
+  }, []);
+
+  useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 30);
     };

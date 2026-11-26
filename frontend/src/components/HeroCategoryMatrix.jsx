@@ -34,7 +34,8 @@ export default function HeroCategoryMatrix({
   heroBanner, 
   promises = [],
   onSelectCategory,
-  onBookBanner
+  onBookBanner,
+  onJoinEmployee
 }) {
   return (
     <section id="hero-section" className="pt-6 pb-10">
@@ -50,6 +51,9 @@ export default function HeroCategoryMatrix({
               <p className="text-sm text-gray-500 mt-1">
                 Verified pros at your doorstep in Bengaluru
               </p>
+              <button type="button" onClick={onJoinEmployee} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-violet-800">
+                Join as an Employee <ArrowRight className="h-4 w-4" />
+              </button>
             </div>
 
             {/* 4x2 Main Categories Grid */}

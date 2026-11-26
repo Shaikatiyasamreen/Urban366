@@ -96,7 +96,14 @@ CREATE TABLE IF NOT EXISTS bookings (
     payment_method TEXT DEFAULT 'Cash on Delivery',
     items_json TEXT,
     status TEXT DEFAULT 'confirmed',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    employee_id INTEGER,
+    job_date TEXT,
+    time_slot TEXT,
+    service TEXT,
+    service_address TEXT,
+    work_description TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS laborers (
@@ -114,6 +121,8 @@ CREATE TABLE IF NOT EXISTS laborers (
     registered_by TEXT NOT NULL DEFAULT 'Admin',
     approval_status TEXT NOT NULL DEFAULT 'Approved',
     availability_status TEXT NOT NULL DEFAULT 'Available',
+    email TEXT DEFAULT '',
+    password_hash TEXT DEFAULT '',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -133,6 +142,35 @@ CREATE TABLE IF NOT EXISTS customer_sessions (
     expires_at INTEGER NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS employee_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (employee_id) REFERENCES laborers(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS slot_alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL,
+    job_date TEXT NOT NULL,
+    time_slot TEXT NOT NULL,
+    service TEXT NOT NULL,
+    customer_id INTEGER,
+    customer_name TEXT NOT NULL,
+    customer_phone TEXT NOT NULL,
+    address TEXT NOT NULL,
+    work_description TEXT DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'Requested',
+    booking_id INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (employee_id) REFERENCES laborers(id) ON DELETE CASCADE,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+    FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL
 );
 """
 
@@ -261,6 +299,18 @@ LABORER_COLUMNS = (
     ("registered_by", "TEXT NOT NULL DEFAULT 'Admin'"),
     ("approval_status", "TEXT NOT NULL DEFAULT 'Approved'"),
     ("availability_status", "TEXT NOT NULL DEFAULT 'Available'"),
+    ("email", "TEXT DEFAULT ''"),
+    ("password_hash", "TEXT DEFAULT ''"),
+)
+
+BOOKING_COLUMNS = (
+    ("employee_id", "INTEGER"),
+    ("job_date", "TEXT"),
+    ("time_slot", "TEXT"),
+    ("service", "TEXT"),
+    ("service_address", "TEXT"),
+    ("work_description", "TEXT DEFAULT ''"),
+    ("updated_at", "TIMESTAMP"),
 )
 
 BENGALURU_LABORERS = (
@@ -406,12 +456,39 @@ def migrate_laborers(conn):
             )
 
 
+def migrate_bookings(conn):
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(bookings)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+    for column, definition in BOOKING_COLUMNS:
+        if column not in existing_columns:
+            cursor.execute(f"ALTER TABLE bookings ADD COLUMN {column} {definition}")
+
+
+def migrate_platform(conn):
+    migrate_bookings(conn)
+    cursor = conn.cursor()
+    cursor.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_laborers_email_unique "
+        "ON laborers(email COLLATE NOCASE) WHERE email IS NOT NULL AND email <> ''"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bookings_employee_schedule "
+        "ON bookings(employee_id, job_date, status)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_slot_alerts_employee_status "
+        "ON slot_alerts(employee_id, status, job_date)"
+    )
+
+
 def init_db():
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
         cursor.executescript(SCHEMA_SQL)
         migrate_laborers(conn)
+        migrate_platform(conn)
         conn.commit()
 
         # Check if tables need initial seeding

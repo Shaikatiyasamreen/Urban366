@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { 
   X, 
   Trash2, 
@@ -22,19 +22,36 @@ export default function CartDrawer({
   onRemoveItem,
   onBookingSuccess 
 }) {
-  const [customerName, setCustomerName] = useState('Rahul Sharma');
-  const [customerPhone, setCustomerPhone] = useState('+91 98765 43210');
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [scheduledDate, setScheduledDate] = useState('Today, 20 Nov');
   const [scheduledTime, setScheduledTime] = useState('02:00 PM - 03:00 PM');
   const [paymentMethod, setPaymentMethod] = useState('Cash on Delivery');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [touched, setTouched] = useState({});
+  const [submitted, setSubmitted] = useState(false);
+  const fieldRefs = useRef({});
 
   if (!isOpen) return null;
 
   const handleCheckout = async () => {
-    if (!customerName.trim() || !customerPhone.trim()) {
-      setErrorMessage('Please enter your name and phone number');
+    if (isSubmitting) return;
+    setSubmitted(true);
+    const errors = {};
+    if (!/^[\p{L} ]+$/u.test(customerName.trim()) || customerName.trim().replace(/\s+/g, '').length < 2) {
+      errors.customer_name = 'Enter a valid full name (at least 2 letters).';
+    }
+    if (!/^[6-9]\d{9}$/.test(customerPhone)) {
+      errors.customer_phone = 'Enter a valid 10-digit Indian mobile number.';
+    }
+    setFieldErrors(errors);
+    setTouched({ customer_name: true, customer_phone: true });
+    if (Object.keys(errors).length) {
+      const firstInvalid = Object.keys(errors)[0];
+      fieldRefs.current[firstInvalid]?.focus();
+      fieldRefs.current[firstInvalid]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
     setErrorMessage('');
@@ -59,7 +76,17 @@ export default function CartDrawer({
         onBookingSuccess(data);
         onClose();
       } else {
-        setErrorMessage(data.error || 'Failed to place booking');
+        const backendErrors = data.errors && typeof data.errors === 'object' ? data.errors : {};
+        const mapped = {};
+        if (backendErrors.customer_name) mapped.customer_name = backendErrors.customer_name;
+        if (backendErrors.customer_phone) mapped.customer_phone = backendErrors.customer_phone;
+        setFieldErrors(current => ({ ...current, ...mapped }));
+        if (Object.keys(mapped).length) {
+          setTouched(current => ({ ...current, ...Object.fromEntries(Object.keys(mapped).map(field => [field, true])) }));
+          fieldRefs.current[Object.keys(mapped)[0]]?.focus();
+        } else {
+          setErrorMessage(data.error || data.message || 'Failed to place booking');
+        }
       }
     } catch (err) {
       setErrorMessage('Network error connecting to Urbab366 backend');
@@ -70,6 +97,36 @@ export default function CartDrawer({
 
   const visitingFee = 49;
   const grandTotal = (cart?.total_amount || 0) + visitingFee;
+  const updateContact = (field, value) => {
+    if (field === 'customer_name') setCustomerName(value);
+    else setCustomerPhone(value);
+    setErrorMessage('');
+    if (submitted || touched[field]) {
+      const error = field === 'customer_name'
+        ? (/^[\p{L} ]+$/u.test(value.trim()) && value.trim().replace(/\s+/g, '').length >= 2 ? '' : 'Enter a valid full name (at least 2 letters).')
+        : (/^[6-9]\d{9}$/.test(value) ? '' : 'Enter a valid 10-digit Indian mobile number.');
+      setFieldErrors(current => {
+        const next = { ...current };
+        if (error) next[field] = error;
+        else delete next[field];
+        return next;
+      });
+    }
+  };
+  const blurContact = field => {
+    setTouched(current => ({ ...current, [field]: true }));
+    const value = field === 'customer_name' ? customerName : customerPhone;
+    const error = field === 'customer_name'
+      ? (/^[\p{L} ]+$/u.test(value.trim()) && value.trim().replace(/\s+/g, '').length >= 2 ? '' : 'Enter a valid full name (at least 2 letters).')
+      : (/^[6-9]\d{9}$/.test(value) ? '' : 'Enter a valid 10-digit Indian mobile number.');
+    setFieldErrors(current => {
+      const next = { ...current };
+      if (error) next[field] = error;
+      else delete next[field];
+      return next;
+    });
+  };
+  const contactClass = field => `mt-1 w-full p-2 text-xs bg-gray-50 border rounded-lg ${fieldErrors[field] ? 'border-red-500' : 'border-gray-200'}`;
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-black/60 backdrop-blur-sm animate-fade-in">
@@ -202,20 +259,36 @@ export default function CartDrawer({
                   <div className="space-y-2 pt-2">
                     <label className="block text-xs font-semibold text-gray-600">Contact Details</label>
                     <div className="grid grid-cols-2 gap-2">
+                      <label className="block min-w-0 text-xs font-semibold text-gray-600">Full Name <span className="text-red-500">*</span>
                       <input 
                         type="text" 
                         placeholder="Your Full Name"
                         value={customerName}
-                        onChange={(e) => setCustomerName(e.target.value)}
-                        className="p-2 text-xs bg-gray-50 border border-gray-200 rounded-lg"
+                        ref={element => { fieldRefs.current.customer_name = element; }}
+                        onChange={(e) => updateContact('customer_name', e.target.value)}
+                        onBlur={() => blurContact('customer_name')}
+                        aria-invalid={Boolean(fieldErrors.customer_name)}
+                        className={contactClass('customer_name')}
+                        required
                       />
+                      {fieldErrors.customer_name && <p className="text-red-500 text-xs mt-1">{fieldErrors.customer_name}</p>}
+                      </label>
+                      <label className="block min-w-0 text-xs font-semibold text-gray-600">Phone Number <span className="text-red-500">*</span>
                       <input 
                         type="tel" 
                         placeholder="Phone Number"
                         value={customerPhone}
-                        onChange={(e) => setCustomerPhone(e.target.value)}
-                        className="p-2 text-xs bg-gray-50 border border-gray-200 rounded-lg"
+                        ref={element => { fieldRefs.current.customer_phone = element; }}
+                        inputMode="numeric"
+                        maxLength={10}
+                        onChange={(e) => updateContact('customer_phone', e.target.value.replace(/\D/g, '').slice(0, 10))}
+                        onBlur={() => blurContact('customer_phone')}
+                        aria-invalid={Boolean(fieldErrors.customer_phone)}
+                        className={contactClass('customer_phone')}
+                        required
                       />
+                      {fieldErrors.customer_phone && <p className="text-red-500 text-xs mt-1">{fieldErrors.customer_phone}</p>}
+                      </label>
                     </div>
                   </div>
 
